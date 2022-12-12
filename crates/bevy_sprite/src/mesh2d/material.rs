@@ -522,8 +522,8 @@ fn prepare_material2d<M: Material2d>(
     let prepared = material.as_bind_group(
         &pipeline.material2d_layout,
         render_device,
-        images,
-        fallback_image,
+        Some(images),
+        Some(fallback_image),
     )?;
     Ok(PreparedMaterial2d {
         bindings: prepared.bindings,

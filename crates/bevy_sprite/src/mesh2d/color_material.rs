@@ -95,7 +95,7 @@ pub struct ColorMaterialUniform {
 }
 
 impl AsBindGroupShaderType<ColorMaterialUniform> for ColorMaterial {
-    fn as_bind_group_shader_type(&self, _images: &RenderAssets<Image>) -> ColorMaterialUniform {
+    fn as_bind_group_shader_type(&self, _images: Option<&RenderAssets<Image>>) -> ColorMaterialUniform {
         let mut flags = ColorMaterialFlags::NONE;
         if self.texture.is_some() {
             flags |= ColorMaterialFlags::TEXTURE;

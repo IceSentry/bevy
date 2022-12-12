@@ -4,16 +4,20 @@ use crate::fxaa::{CameraFxaaPipeline, Fxaa, FxaaPipeline};
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryState;
 use bevy_render::{
+    render_asset::RenderAssets,
     render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo, SlotType},
     render_resource::{
-        BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, FilterMode, Operations,
-        PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, SamplerDescriptor,
-        TextureViewId,
+        AsBindGroup, BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, FilterMode,
+        Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
+        SamplerDescriptor, TextureViewId,
     },
     renderer::RenderContext,
+    texture::{FallbackImage, Image},
     view::{ExtractedView, ViewTarget},
 };
 use bevy_utils::default;
+
+use super::FxaaBindGroup;
 
 pub struct FxaaNode {
     query: QueryState<
@@ -24,6 +28,7 @@ pub struct FxaaNode {
         ),
         With<ExtractedView>,
     >,
+
     cached_texture_bind_group: Mutex<Option<(TextureViewId, BindGroup)>>,
 }
 
@@ -85,24 +90,19 @@ impl Node for FxaaNode {
                         min_filter: FilterMode::Linear,
                         ..default()
                     });
-
-                let bind_group =
-                    render_context
-                        .render_device
-                        .create_bind_group(&BindGroupDescriptor {
-                            label: None,
-                            layout: &fxaa_pipeline.texture_bind_group,
-                            entries: &[
-                                BindGroupEntry {
-                                    binding: 0,
-                                    resource: BindingResource::TextureView(source),
-                                },
-                                BindGroupEntry {
-                                    binding: 1,
-                                    resource: BindingResource::Sampler(&sampler),
-                                },
-                            ],
-                        });
+                let bind_group = FxaaBindGroup {
+                    sampler,
+                    source: source.clone(),
+                };
+                let bind_group = bind_group
+                    .as_bind_group(
+                        &fxaa_pipeline.texture_bind_group,
+                        &render_context.render_device,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                    .bind_group;
 
                 let (_, bind_group) = cached_bind_group.insert((source.id(), bind_group));
                 bind_group

@@ -5,11 +5,13 @@ use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    Data, DataStruct, Error, Fields, LitInt, LitStr, NestedMeta, Result, Token,
+    Data, DataStruct, Error, Fields, GenericArgument, LitInt, LitStr, NestedMeta, PathArguments,
+    Result, Token, Type, TypePath,
 };
 
 const UNIFORM_ATTRIBUTE_NAME: Symbol = Symbol("uniform");
 const TEXTURE_ATTRIBUTE_NAME: Symbol = Symbol("texture");
+const TEXTURE_VIEW_ATTRIBUTE_NAME: Symbol = Symbol("texture_view");
 const SAMPLER_ATTRIBUTE_NAME: Symbol = Symbol("sampler");
 const BIND_GROUP_DATA_ATTRIBUTE_NAME: Symbol = Symbol("bind_group_data");
 
@@ -17,6 +19,7 @@ const BIND_GROUP_DATA_ATTRIBUTE_NAME: Symbol = Symbol("bind_group_data");
 enum BindingType {
     Uniform,
     Texture,
+    TextureView,
     Sampler,
 }
 
@@ -31,6 +34,61 @@ enum BindingState<'a> {
     OccupiedMergableUniform {
         uniform_fields: Vec<&'a syn::Field>,
     },
+}
+
+fn path_is_option(typepath: &TypePath) -> bool {
+    typepath.qself.is_none()
+        && typepath.path.segments.len() == 1
+        && typepath.path.segments.iter().next().unwrap().ident == "Option"
+}
+
+fn is_option(ty: &Type) -> bool {
+    if let Type::Path(path) = ty {
+        if path_is_option(path) {
+            return true;
+        }
+    }
+    false
+}
+
+fn get_type_name(ty: &Type) -> Option<String> {
+    if let Type::Path(typepath) = ty {
+        Some(
+            typepath
+                .path
+                .segments
+                .iter()
+                .next()
+                .unwrap()
+                .ident
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
+// Parse Option<T> and returns the T as a String
+fn get_type_name_from_option(ty: &Type) -> Option<String> {
+    let Type::Path(typepath) = ty else {
+        return None;
+    };
+    if !path_is_option(typepath) {
+        return None;
+    }
+    // Get the first segment of the path
+    let type_params = &typepath.path.segments.iter().next().unwrap().arguments;
+    // It should be the <T>
+    let PathArguments::AngleBracketed(params) = type_params else {
+        return None;
+    };
+    // Get the generic argument T
+    let generic_arg = params.args.iter().next().unwrap();
+    // This argument must be a type:
+    let GenericArgument::Type(ty) =  generic_arg else {
+        return None;
+    };
+    get_type_name(ty)
 }
 
 pub fn derive_as_bind_group(ast: syn::DeriveInput) -> Result<TokenStream> {
@@ -124,6 +182,8 @@ pub fn derive_as_bind_group(ast: syn::DeriveInput) -> Result<TokenStream> {
                 BindingType::Uniform
             } else if attr_ident == TEXTURE_ATTRIBUTE_NAME {
                 BindingType::Texture
+            } else if attr_ident == TEXTURE_VIEW_ATTRIBUTE_NAME {
+                BindingType::TextureView
             } else if attr_ident == SAMPLER_ATTRIBUTE_NAME {
                 BindingType::Sampler
             } else {
@@ -133,6 +193,14 @@ pub fn derive_as_bind_group(ast: syn::DeriveInput) -> Result<TokenStream> {
             let (binding_index, nested_meta_items) = get_binding_nested_attr(attr)?;
 
             let field_name = field.ident.as_ref().unwrap();
+            let field_is_option = is_option(&field.ty);
+            let field_type_name = if field_is_option {
+                get_type_name_from_option(&field.ty)
+            } else {
+                get_type_name(&field.ty)
+            }
+            .expect("Failed to get type name for field");
+
             let required_len = binding_index as usize + 1;
             if required_len > binding_states.len() {
                 binding_states.resize(required_len, BindingState::Free);
@@ -207,11 +275,40 @@ pub fn derive_as_bind_group(ast: syn::DeriveInput) -> Result<TokenStream> {
                         #render_path::render_resource::OwnedBindingResource::TextureView({
                             let handle: Option<&#asset_path::Handle<#render_path::texture::Image>> = (&self.#field_name).into();
                             if let Some(handle) = handle {
-                                images.get(handle).ok_or_else(|| #render_path::render_resource::AsBindGroupError::RetryNextUpdate)?.texture_view.clone()
+                                images.unwrap().get(handle).ok_or_else(|| #render_path::render_resource::AsBindGroupError::RetryNextUpdate)?.texture_view.clone()
                             } else {
-                                fallback_image.texture_view.clone()
+                                fallback_image.unwrap().texture_view.clone()
                             }
                         })
+                    });
+
+                    binding_layouts.push(quote! {
+                        #render_path::render_resource::BindGroupLayoutEntry {
+                            binding: #binding_index,
+                            visibility: #visibility,
+                            ty: #render_path::render_resource::BindingType::Texture {
+                                multisampled: #multisampled,
+                                sample_type: #render_path::render_resource::#sample_type,
+                                view_dimension: #render_path::render_resource::#dimension,
+                            },
+                            count: None,
+                        }
+                    });
+                }
+                BindingType::TextureView => {
+                    let TextureAttrs {
+                        dimension,
+                        sample_type,
+                        multisampled,
+                        visibility,
+                    } = get_texture_attrs(nested_meta_items)?;
+
+                    let visibility =
+                        visibility.hygenic_quote(&quote! { #render_path::render_resource });
+
+                    // TODO support Option<TextureView>
+                    binding_impls.push(quote! {
+                        #render_path::render_resource::OwnedBindingResource::TextureView(self.#field_name.clone())
                     });
 
                     binding_layouts.push(quote! {
@@ -236,16 +333,25 @@ pub fn derive_as_bind_group(ast: syn::DeriveInput) -> Result<TokenStream> {
                     let visibility =
                         visibility.hygenic_quote(&quote! { #render_path::render_resource });
 
-                    binding_impls.push(quote! {
-                        #render_path::render_resource::OwnedBindingResource::Sampler({
-                            let handle: Option<&#asset_path::Handle<#render_path::texture::Image>> = (&self.#field_name).into();
-                            if let Some(handle) = handle {
-                                images.get(handle).ok_or_else(|| #render_path::render_resource::AsBindGroupError::RetryNextUpdate)?.sampler.clone()
-                            } else {
-                                fallback_image.sampler.clone()
-                            }
-                        })
-                    });
+                    match field_type_name.as_str() {
+                        "Sampler" => {
+                            binding_impls.push(quote! {
+                                #render_path::render_resource::OwnedBindingResource::Sampler(self.#field_name.clone())
+                            });
+                        }
+                        _ => {
+                            binding_impls.push(quote! {
+                                #render_path::render_resource::OwnedBindingResource::Sampler({
+                                    let handle: Option<&#asset_path::Handle<#render_path::texture::Image>> = (&self.#field_name).into();
+                                    if let Some(handle) = handle {
+                                        images.unwrap().get(handle).ok_or_else(|| #render_path::render_resource::AsBindGroupError::RetryNextUpdate)?.sampler.clone()
+                                    } else {
+                                        fallback_image.unwrap().sampler.clone()
+                                    }
+                                })
+                            });
+                        }
+                    }
 
                     binding_layouts.push(quote!{
                         #render_path::render_resource::BindGroupLayoutEntry {
@@ -369,8 +475,8 @@ pub fn derive_as_bind_group(ast: syn::DeriveInput) -> Result<TokenStream> {
                 &self,
                 layout: &#render_path::render_resource::BindGroupLayout,
                 render_device: &#render_path::renderer::RenderDevice,
-                images: &#render_path::render_asset::RenderAssets<#render_path::texture::Image>,
-                fallback_image: &#render_path::texture::FallbackImage,
+                images: Option<&#render_path::render_asset::RenderAssets<#render_path::texture::Image>>,
+                fallback_image: Option<&#render_path::texture::FallbackImage>,
             ) -> Result<#render_path::render_resource::PreparedBindGroup<Self>, #render_path::render_resource::AsBindGroupError> {
                 let bindings = vec![#(#binding_impls,)*];
 

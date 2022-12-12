@@ -262,8 +262,8 @@ pub trait AsBindGroup: Sized {
         &self,
         layout: &BindGroupLayout,
         render_device: &RenderDevice,
-        images: &RenderAssets<Image>,
-        fallback_image: &FallbackImage,
+        images: Option<&RenderAssets<Image>>,
+        fallback_image: Option<&FallbackImage>,
     ) -> Result<PreparedBindGroup<Self>, AsBindGroupError>;
 
     /// Creates the bind group layout matching all bind groups returned by [`AsBindGroup::as_bind_group`]
@@ -271,6 +271,7 @@ pub trait AsBindGroup: Sized {
 }
 
 /// An error that occurs during [`AsBindGroup::as_bind_group`] calls.
+#[derive(Debug)]
 pub enum AsBindGroupError {
     /// The bind group could not be generated. Try again next frame.
     RetryNextUpdate,
@@ -310,7 +311,7 @@ impl OwnedBindingResource {
 pub trait AsBindGroupShaderType<T: ShaderType> {
     /// Return the `T` [`ShaderType`] for `self`. When used in [`AsBindGroup`]
     /// derives, it is safe to assume that all images in `self` exist.
-    fn as_bind_group_shader_type(&self, images: &RenderAssets<Image>) -> T;
+    fn as_bind_group_shader_type(&self, images: Option<&RenderAssets<Image>>) -> T;
 }
 
 impl<T, U: ShaderType> AsBindGroupShaderType<U> for T
@@ -318,7 +319,7 @@ where
     for<'a> &'a T: Into<U>,
 {
     #[inline]
-    fn as_bind_group_shader_type(&self, _images: &RenderAssets<Image>) -> U {
+    fn as_bind_group_shader_type(&self, _images: Option<&RenderAssets<Image>>) -> U {
         self.into()
     }
 }

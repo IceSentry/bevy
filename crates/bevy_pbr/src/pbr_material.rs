@@ -330,7 +330,8 @@ pub struct StandardMaterialUniform {
 }
 
 impl AsBindGroupShaderType<StandardMaterialUniform> for StandardMaterial {
-    fn as_bind_group_shader_type(&self, images: &RenderAssets<Image>) -> StandardMaterialUniform {
+    fn as_bind_group_shader_type(&self, images: Option<&RenderAssets<Image>>) -> StandardMaterialUniform {
+        let images = images.unwrap();
         let mut flags = StandardMaterialFlags::NONE;
         if self.base_color_texture.is_some() {
             flags |= StandardMaterialFlags::BASE_COLOR_TEXTURE;

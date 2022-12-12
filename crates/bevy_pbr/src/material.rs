@@ -577,8 +577,8 @@ fn prepare_material<M: Material>(
     let prepared = material.as_bind_group(
         &pipeline.material_layout,
         render_device,
-        images,
-        fallback_image,
+        Some(images),
+        Some(fallback_image),
     )?;
     Ok(PreparedMaterial {
         bindings: prepared.bindings,

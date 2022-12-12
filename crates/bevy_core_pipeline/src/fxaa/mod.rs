@@ -145,6 +145,14 @@ impl Plugin for FxaaPlugin {
     }
 }
 
+#[derive(AsBindGroup)]
+pub(crate) struct FxaaBindGroup {
+    #[texture_view(0)]
+    pub(crate) source: TextureView,
+    #[sampler(1)]
+    pub(crate) sampler: Sampler,
+}
+
 #[derive(Resource, Deref)]
 pub struct FxaaPipeline {
     texture_bind_group: BindGroupLayout,
@@ -152,30 +160,8 @@ pub struct FxaaPipeline {
 
 impl FromWorld for FxaaPipeline {
     fn from_world(render_world: &mut World) -> Self {
-        let texture_bind_group = render_world
-            .resource::<RenderDevice>()
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("fxaa_texture_bind_group_layout"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: BindingType::Texture {
-                            sample_type: TextureSampleType::Float { filterable: true },
-                            view_dimension: TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::FRAGMENT,
-                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
+        let render_device = render_world.resource::<RenderDevice>();
+        let texture_bind_group = FxaaBindGroup::bind_group_layout(render_device);
         FxaaPipeline { texture_bind_group }
     }
 }
