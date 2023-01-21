@@ -1230,6 +1230,9 @@ description = "A shader that uses the depth texture generated in a prepass"
 category = "Shaders"
 wasm = false
 
+[[example]]
+name = "ssgi"
+path = "examples/shader/ssgi/mod.rs"
 
 [[example]]
 name = "shader_material_screenspace_texture"
