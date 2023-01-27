@@ -211,6 +211,10 @@ where
             "MAX_DIRECTIONAL_LIGHTS".to_string(),
             MAX_DIRECTIONAL_LIGHTS as i32,
         ));
+        shader_defs.push(ShaderDefVal::Int(
+            "MAX_CASCADES_PER_LIGHT".to_string(),
+            1 as i32,
+        ));
 
         if layout.contains(Mesh::ATTRIBUTE_UV_0) {
             shader_defs.push("VERTEX_UVS".into());

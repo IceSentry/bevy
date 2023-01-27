@@ -49,7 +49,7 @@ fn coords_to_viewport_uv(position: vec2<f32>, viewport: vec4<f32>) -> vec2<f32> 
 
 fn prepass_depth(frag_coord: vec2<f32>) -> f32 {
     let depth_sample = textureLoad(depth_prepass_texture, vec2<i32>(frag_coord), 0);
-    return depth_sample;
+    return 0.001 / depth_sample;
 }
 
 fn prepass_normal(frag_coord: vec2<f32>) -> vec3<f32> {
@@ -175,30 +175,57 @@ fn detect_edge_color(uv: vec2<f32>, resolution: vec2<f32>) -> f32 {
     return edge;
 }
 
+// @fragment
+// fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+//     let resolution = vec2<f32>(textureDimensions(screen_texture));
+//     let frag_coord = in.position.xy;
+//     let inverse_screen_size = 1.0 / resolution.xy;
+//     let uv = frag_coord * inverse_screen_size;
+
+//     let color = textureSample(screen_texture, texture_sampler, uv);
+
+//     if config.enabled == 1.0 {
+//         let edge_depth = detect_edge_depth(frag_coord);
+//         let edge_normal = detect_edge_normal(frag_coord);
+//         let edge_color = detect_edge_color(uv, resolution);
+//         let edge = max(edge_depth, max(edge_normal, edge_color));
+
+//         if config.debug == 1.0 {
+//             return vec4(edge_depth, edge_normal, edge_color, 1.0);
+//         } else {
+//             if edge > 0.01 {
+//                 return config.edge_color;
+//             } else {
+//                 return color;
+//             }
+//         }
+//     } else {
+//         return color;
+//     }
+// }
+
 @fragment
-fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    let resolution = vec2<f32>(textureDimensions(screen_texture));
+fn fragment(
+    in: FullscreenVertexOutput
+) -> @location(0) vec4<f32> {
     let frag_coord = in.position.xy;
+
+    var log_depth = prepass_depth(frag_coord);
+    let resolution = vec2<f32>(textureDimensions(screen_texture));
     let inverse_screen_size = 1.0 / resolution.xy;
     let uv = frag_coord * inverse_screen_size;
-
     let color = textureSample(screen_texture, texture_sampler, uv);
 
     if config.enabled == 1.0 {
-        let edge_depth = detect_edge_depth(frag_coord);
-        let edge_normal = detect_edge_normal(frag_coord);
-        let edge_color = detect_edge_color(uv, resolution);
-        let edge = max(edge_depth, max(edge_normal, edge_color));
+        var response = 0.0;
+        response += max(0.0, log_depth - prepass_depth(vec2(frag_coord.x + 1.0, frag_coord.y)));
+        response += max(0.0, log_depth - prepass_depth(vec2(frag_coord.x - 1.0, frag_coord.y)));
+        response += max(0.0, log_depth - prepass_depth(vec2(frag_coord.x, frag_coord.y + 1.0)));
+        response += max(0.0, log_depth - prepass_depth(vec2(frag_coord.x, frag_coord.y - 1.0)));
+        response /= 4.0;
 
-        if config.debug == 1.0 {
-            return vec4(edge_depth, edge_normal, edge_color, 1.0);
-        } else {
-            if edge > 0.01 {
-                return config.edge_color;
-            } else {
-                return color;
-            }
-        }
+        var shade = exp(-response * 3000.0 * 1.0);
+        return color * vec4(shade);
     } else {
         return color;
     }
