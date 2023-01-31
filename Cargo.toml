@@ -13,7 +13,11 @@ repository = "https://github.com/bevyengine/bevy"
 rust-version = "1.67.0"
 
 [workspace]
-exclude = ["benches", "crates/bevy_ecs_compile_fail_tests", "crates/bevy_reflect_compile_fail_tests"]
+exclude = [
+  "benches",
+  "crates/bevy_ecs_compile_fail_tests",
+  "crates/bevy_reflect_compile_fail_tests",
+]
 members = [
   "crates/*",
   "examples/android",
@@ -1244,6 +1248,10 @@ wasm = false
 [[example]]
 name = "edge_detection"
 path = "examples/shader/edge_detection/mod.rs"
+
+[[example]]
+name = "edl"
+path = "examples/shader/edl.rs"
 
 [[example]]
 name = "shader_material_screenspace_texture"

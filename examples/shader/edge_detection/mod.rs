@@ -58,7 +58,7 @@ fn setup_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         NormalPrepass,
         FlyCam,
         Fxaa {
-            enabled: false,
+            enabled: true,
             edge_threshold: Sensitivity::Extreme,
             edge_threshold_min: Sensitivity::Extreme,
         },
