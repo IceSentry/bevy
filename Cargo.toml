@@ -1402,6 +1402,10 @@ wasm = false
 
 
 [[example]]
+name = "edge_detection"
+path = "examples/shader/edge_detection/mod.rs"
+
+[[example]]
 name = "shader_material_screenspace_texture"
 path = "examples/shader/shader_material_screenspace_texture.rs"
 
