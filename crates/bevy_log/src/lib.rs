@@ -13,7 +13,7 @@
 
 #[cfg(feature = "trace")]
 use std::panic;
-#[cfg(feature = "tracing-appender")]
+
 use std::path::PathBuf;
 
 #[cfg(target_os = "android")]
@@ -93,7 +93,6 @@ use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
 pub struct LogPlugin;
 
 /// Enum to control how often a new log file will be created
-#[cfg(feature = "tracing-appender")]
 #[derive(Debug, Clone)]
 pub enum Rolling {
     /// Creates a new file every minute and appends the date to the file name
@@ -109,12 +108,10 @@ pub enum Rolling {
     Never,
 }
 
-#[cfg(feature = "tracing-appender")]
 #[derive(Resource)]
 struct GuardRes(tracing_appender::non_blocking::WorkerGuard);
 
 /// Settings to control the `log_to_file` feature
-#[cfg(feature = "tracing-appender")]
 #[derive(Debug, Clone)]
 pub struct FileAppenderSettings {
     /// Controls how often a new file will be created
@@ -149,8 +146,7 @@ pub struct LogSettings {
     pub level: Level,
 
     /// ConfigureFileLogging
-    #[cfg(feature = "tracing-appender")]
-    pub file_appender: FileAppenderSettings,
+    pub file_appender: Option<FileAppenderSettings>,
 }
 
 impl Default for LogSettings {
@@ -158,8 +154,7 @@ impl Default for LogSettings {
         Self {
             filter: "wgpu=error".to_string(),
             level: Level::INFO,
-            #[cfg(feature = "tracing-appender")]
-            file_appender: FileAppenderSettings::default(),
+            file_appender: None,
         }
     }
 }
@@ -225,32 +220,39 @@ impl Plugin for LogPlugin {
 
             let subscriber = subscriber.with(fmt_layer);
 
-            #[cfg(feature = "tracing-appender")]
             let subscriber = {
                 let file_output = {
                     let settings = app.world.get_resource_or_insert_with(LogSettings::default);
                     settings.file_appender.clone()
                 };
 
-                let file_appender = tracing_appender::rolling::RollingFileAppender::new(
-                    match file_output.rolling {
-                        Rolling::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
-                        Rolling::Hourly => tracing_appender::rolling::Rotation::HOURLY,
-                        Rolling::Daily => tracing_appender::rolling::Rotation::DAILY,
-                        Rolling::Never => tracing_appender::rolling::Rotation::NEVER,
-                    },
-                    file_output.path,
-                    file_output.prefix,
-                );
+                let layer = if let Some(file_output) = file_output {
+                    let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+                        match file_output.rolling {
+                            Rolling::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
+                            Rolling::Hourly => tracing_appender::rolling::Rotation::HOURLY,
+                            Rolling::Daily => tracing_appender::rolling::Rotation::DAILY,
+                            Rolling::Never => tracing_appender::rolling::Rotation::NEVER,
+                        },
+                        file_output.path,
+                        file_output.prefix,
+                    );
 
-                let (non_blocking, worker_guard) = tracing_appender::non_blocking(file_appender);
-                let file_fmt_layer = tracing_subscriber::fmt::Layer::default()
-                    .with_ansi(false)
-                    .with_writer(non_blocking);
-                // We need to keep this somewhere so it doesn't get dropped. If it gets dropped then it will silently stop writing to the file
-                app.insert_resource(GuardRes(worker_guard));
+                    let (non_blocking, worker_guard) =
+                        tracing_appender::non_blocking(file_appender);
+                    // We need to keep this somewhere so it doesn't get dropped. If it gets dropped then it will silently stop writing to the file
+                    app.insert_resource(GuardRes(worker_guard));
 
-                subscriber.with(file_fmt_layer)
+                    let file_fmt_layer = tracing_subscriber::fmt::Layer::default()
+                        .with_ansi(false)
+                        .with_writer(non_blocking);
+
+                    Some(file_fmt_layer)
+                } else {
+                    None
+                };
+
+                subscriber.with(layer)
             };
 
             #[cfg(feature = "tracing-chrome")]
