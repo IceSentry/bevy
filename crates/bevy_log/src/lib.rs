@@ -14,6 +14,8 @@
 #[cfg(feature = "trace")]
 use std::panic;
 
+use std::path::PathBuf;
+
 #[cfg(target_os = "android")]
 mod android_tracing;
 
@@ -25,6 +27,7 @@ pub mod prelude {
     };
 }
 
+use bevy_ecs::system::Resource;
 pub use bevy_utils::tracing::{
     debug, debug_span, error, error_span, info, info_span, trace, trace_span, warn, warn_span,
     Level,
@@ -91,6 +94,9 @@ pub struct LogPlugin {
     /// Filters out logs that are "less than" the given level.
     /// This can be further filtered using the `filter` setting.
     pub level: Level,
+
+    /// Configure file Logging
+    pub file_appender_settings: Option<FileAppenderSettings>,
 }
 
 impl Default for LogPlugin {
@@ -98,6 +104,60 @@ impl Default for LogPlugin {
         Self {
             filter: "wgpu=error".to_string(),
             level: Level::INFO,
+            file_appender_settings: None,
+        }
+    }
+}
+
+/// Enum to control how often a new log file will be created
+#[derive(Debug, Clone, Copy)]
+pub enum Rolling {
+    /// Creates a new file every minute and appends the date to the file name
+    /// Date format: YYYY-MM-DD-HH-mm
+    Minutely,
+    /// Creates a new file every hour and appends the date to the file name
+    /// Date format: YYYY-MM-DD-HH
+    Hourly,
+    /// Creates a new file every day and appends the date to the file name
+    /// Date format: YYYY-MM-DD
+    Daily,
+    /// Never creates a new file
+    Never,
+}
+
+impl Into<tracing_appender::rolling::Rotation> for Rolling {
+    fn into(self) -> tracing_appender::rolling::Rotation {
+        match self {
+            Rolling::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
+            Rolling::Hourly => tracing_appender::rolling::Rotation::HOURLY,
+            Rolling::Daily => tracing_appender::rolling::Rotation::DAILY,
+            Rolling::Never => tracing_appender::rolling::Rotation::NEVER,
+        }
+    }
+}
+
+#[derive(Resource)]
+struct FileAppenderWorkerGuard(tracing_appender::non_blocking::WorkerGuard);
+
+/// Settings to control how to log to a file
+#[derive(Debug, Clone)]
+pub struct FileAppenderSettings {
+    /// Controls how often a new file will be created
+    pub rolling: Rolling,
+    /// The path of the directory where the log files will be added
+    ///
+    /// Defaults to the local directory
+    pub path: PathBuf,
+    /// The prefix added when creating a file
+    pub prefix: String,
+}
+
+impl Default for FileAppenderSettings {
+    fn default() -> Self {
+        Self {
+            rolling: Rolling::Never,
+            path: PathBuf::from("."),
+            prefix: String::from("log"),
         }
     }
 }
@@ -164,6 +224,28 @@ impl Plugin for LogPlugin {
                 }));
 
             let subscriber = subscriber.with(fmt_layer);
+
+            let file_appender_layer = if let Some(file_output) = &self.file_appender_settings {
+                let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+                    file_output.rolling.into(),
+                    &file_output.path,
+                    &file_output.prefix,
+                );
+
+                let (non_blocking, worker_guard) = tracing_appender::non_blocking(file_appender);
+                // WARN We need to keep this somewhere so it doesn't get dropped.
+                // If it gets dropped then it will silently stop writing to the file
+                app.insert_resource(FileAppenderWorkerGuard(worker_guard));
+
+                let file_fmt_layer = tracing_subscriber::fmt::Layer::default()
+                    .with_ansi(false)
+                    .with_writer(non_blocking);
+
+                Some(file_fmt_layer)
+            } else {
+                None
+            };
+            let subscriber = subscriber.with(file_appender_layer);
 
             #[cfg(feature = "tracing-chrome")]
             let subscriber = subscriber.with(chrome_layer);

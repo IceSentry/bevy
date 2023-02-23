@@ -1,6 +1,6 @@
 //! This example illustrates how to use logs in bevy.
 
-use bevy::prelude::*;
+use bevy::{log::FileAppenderSettings, prelude::*};
 
 fn main() {
     App::new()
@@ -8,6 +8,8 @@ fn main() {
             // Uncomment this to override the default log settings:
             // level: bevy::log::Level::TRACE,
             // filter: "wgpu=warn,bevy_ecs=info".to_string(),
+            // This will let you configure file logging
+            // file_appender_settings: Some(FileAppenderSettings::default()),
             ..default()
         }))
         .add_system(log_system)
