@@ -95,7 +95,9 @@ pub struct LogPlugin {
     /// This can be further filtered using the `filter` setting.
     pub level: Level,
 
-    /// Configure file Logging
+    /// Configure file logging
+    ///
+    /// File logging doesn't work in wasm so this settings will be ignored when compiled to wasm
     pub file_appender_settings: Option<FileAppenderSettings>,
 }
 
