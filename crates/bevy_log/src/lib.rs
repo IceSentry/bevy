@@ -245,7 +245,7 @@ impl Plugin for LogPlugin {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let file_appender_layer = if let Some(file_output) = &self.file_appender_settings {
+            if let Some(file_output) = &self.file_appender_settings {
                 let file_appender = tracing_appender::rolling::RollingFileAppender::new(
                     file_output.rolling.into(),
                     &file_output.path,
@@ -261,11 +261,8 @@ impl Plugin for LogPlugin {
                     .with_ansi(false)
                     .with_writer(non_blocking);
 
-                Some(file_fmt_layer)
-            } else {
-                None
-            };
-            finished_subscriber = subscriber.with(file_appender_layer);
+                finished_subscriber = subscriber.with(file_fmt_layer);
+            }
         }
 
         #[cfg(target_os = "android")]
