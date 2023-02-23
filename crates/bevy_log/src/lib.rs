@@ -245,11 +245,11 @@ impl Plugin for LogPlugin {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(file_output) = &self.file_appender_settings {
+            if let Some(settings) = &self.file_appender_settings {
                 let file_appender = tracing_appender::rolling::RollingFileAppender::new(
-                    file_output.rolling.into(),
-                    &file_output.path,
-                    &file_output.prefix,
+                    settings.rolling.into(),
+                    &settings.path,
+                    &settings.prefix,
                 );
 
                 let (non_blocking, worker_guard) = tracing_appender::non_blocking(file_appender);
