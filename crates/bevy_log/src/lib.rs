@@ -227,6 +227,24 @@ impl Plugin for LogPlugin {
 
             let subscriber = subscriber.with(fmt_layer);
 
+            #[cfg(feature = "tracing-chrome")]
+            let subscriber = subscriber.with(chrome_layer);
+            #[cfg(feature = "tracing-tracy")]
+            let subscriber = subscriber.with(tracy_layer);
+
+            finished_subscriber = subscriber;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            console_error_panic_hook::set_once();
+            finished_subscriber = subscriber.with(tracing_wasm::WASMLayer::new(
+                tracing_wasm::WASMLayerConfig::default(),
+            ));
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
             let file_appender_layer = if let Some(file_output) = &self.file_appender_settings {
                 let file_appender = tracing_appender::rolling::RollingFileAppender::new(
                     file_output.rolling.into(),
@@ -247,22 +265,7 @@ impl Plugin for LogPlugin {
             } else {
                 None
             };
-            let subscriber = subscriber.with(file_appender_layer);
-
-            #[cfg(feature = "tracing-chrome")]
-            let subscriber = subscriber.with(chrome_layer);
-            #[cfg(feature = "tracing-tracy")]
-            let subscriber = subscriber.with(tracy_layer);
-
-            finished_subscriber = subscriber;
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            console_error_panic_hook::set_once();
-            finished_subscriber = subscriber.with(tracing_wasm::WASMLayer::new(
-                tracing_wasm::WASMLayerConfig::default(),
-            ));
+            finished_subscriber = subscriber.with(file_appender_layer);
         }
 
         #[cfg(target_os = "android")]
