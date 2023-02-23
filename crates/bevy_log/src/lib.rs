@@ -97,7 +97,9 @@ pub struct LogPlugin {
 
     /// Configure file logging
     ///
-    /// File logging doesn't work in wasm so this settings will be ignored when compiled to wasm
+    /// ## Platform-specific
+    ///
+    /// **`WASM`** does not support logging to a file.
     pub file_appender_settings: Option<FileAppenderSettings>,
 }
 
