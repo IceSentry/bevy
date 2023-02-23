@@ -125,9 +125,9 @@ pub enum Rolling {
     Never,
 }
 
-impl Into<tracing_appender::rolling::Rotation> for Rolling {
-    fn into(self) -> tracing_appender::rolling::Rotation {
-        match self {
+impl From<Rolling> for tracing_appender::rolling::Rotation {
+    fn from(val: Rolling) -> Self {
+        match val {
             Rolling::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
             Rolling::Hourly => tracing_appender::rolling::Rotation::HOURLY,
             Rolling::Daily => tracing_appender::rolling::Rotation::DAILY,
