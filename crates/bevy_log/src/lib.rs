@@ -186,66 +186,63 @@ impl Plugin for LogPlugin {
         #[cfg(feature = "trace")]
         let subscriber = subscriber.with(tracing_error::ErrorLayer::default());
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
-        {
-            #[cfg(feature = "tracing-chrome")]
-            let chrome_layer = {
-                let mut layer = tracing_chrome::ChromeLayerBuilder::new();
-                if let Ok(path) = std::env::var("TRACE_CHROME") {
-                    layer = layer.file(path);
-                }
-                let (chrome_layer, guard) = layer
-                    .name_fn(Box::new(|event_or_span| match event_or_span {
-                        tracing_chrome::EventOrSpan::Event(event) => event.metadata().name().into(),
-                        tracing_chrome::EventOrSpan::Span(span) => {
-                            if let Some(fields) =
-                                span.extensions().get::<FormattedFields<DefaultFields>>()
-                            {
-                                format!("{}: {}", span.metadata().name(), fields.fields.as_str())
-                            } else {
-                                span.metadata().name().into()
-                            }
-                        }
-                    }))
-                    .build();
-                app.world.insert_non_send_resource(guard);
-                chrome_layer
-            };
-
-            #[cfg(feature = "tracing-tracy")]
-            let tracy_layer = tracing_tracy::TracyLayer::new();
-
-            let fmt_layer = tracing_subscriber::fmt::Layer::default();
-
-            // bevy_render::renderer logs a `tracy.frame_mark` event every frame
-            // at Level::INFO. Formatted logs should omit it.
-            #[cfg(feature = "tracing-tracy")]
-            let fmt_layer =
-                fmt_layer.with_filter(tracing_subscriber::filter::FilterFn::new(|meta| {
-                    meta.fields().field("tracy.frame_mark").is_none()
-                }));
-
-            let subscriber = subscriber.with(fmt_layer);
-
-            #[cfg(feature = "tracing-chrome")]
-            let subscriber = subscriber.with(chrome_layer);
-            #[cfg(feature = "tracing-tracy")]
-            let subscriber = subscriber.with(tracy_layer);
-
-            finished_subscriber = subscriber;
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            console_error_panic_hook::set_once();
-            finished_subscriber = subscriber.with(tracing_wasm::WASMLayer::new(
-                tracing_wasm::WASMLayerConfig::default(),
-            ));
-        }
-
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(settings) = &self.file_appender_settings {
+            #[cfg(not(target_os = "android"))]
+            let subscriber = {
+                #[cfg(feature = "tracing-chrome")]
+                let chrome_layer = {
+                    let mut layer = tracing_chrome::ChromeLayerBuilder::new();
+                    if let Ok(path) = std::env::var("TRACE_CHROME") {
+                        layer = layer.file(path);
+                    }
+                    let (chrome_layer, guard) = layer
+                        .name_fn(Box::new(|event_or_span| match event_or_span {
+                            tracing_chrome::EventOrSpan::Event(event) => {
+                                event.metadata().name().into()
+                            }
+                            tracing_chrome::EventOrSpan::Span(span) => {
+                                if let Some(fields) =
+                                    span.extensions().get::<FormattedFields<DefaultFields>>()
+                                {
+                                    format!(
+                                        "{}: {}",
+                                        span.metadata().name(),
+                                        fields.fields.as_str()
+                                    )
+                                } else {
+                                    span.metadata().name().into()
+                                }
+                            }
+                        }))
+                        .build();
+                    app.world.insert_non_send_resource(guard);
+                    chrome_layer
+                };
+
+                #[cfg(feature = "tracing-tracy")]
+                let tracy_layer = tracing_tracy::TracyLayer::new();
+
+                let fmt_layer = tracing_subscriber::fmt::Layer::default();
+
+                // bevy_render::renderer logs a `tracy.frame_mark` event every frame
+                // at Level::INFO. Formatted logs should omit it.
+                #[cfg(feature = "tracing-tracy")]
+                let fmt_layer =
+                    fmt_layer.with_filter(tracing_subscriber::filter::FilterFn::new(|meta| {
+                        meta.fields().field("tracy.frame_mark").is_none()
+                    }));
+
+                let subscriber = subscriber.with(fmt_layer);
+
+                #[cfg(feature = "tracing-chrome")]
+                let subscriber = subscriber.with(chrome_layer);
+                #[cfg(feature = "tracing-tracy")]
+                let subscriber = subscriber.with(tracy_layer);
+                subscriber
+            };
+
+            let file_appender_layer = if let Some(settings) = &self.file_appender_settings {
                 let file_appender = tracing_appender::rolling::RollingFileAppender::new(
                     settings.rolling.into(),
                     &settings.path,
@@ -260,9 +257,21 @@ impl Plugin for LogPlugin {
                 let file_fmt_layer = tracing_subscriber::fmt::Layer::default()
                     .with_ansi(false)
                     .with_writer(non_blocking);
+                Some(file_fmt_layer)
+            } else {
+                None
+            };
+            let subscriber = subscriber.with(file_appender_layer);
 
-                finished_subscriber = subscriber.with(file_fmt_layer);
-            }
+            finished_subscriber = subscriber;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            console_error_panic_hook::set_once();
+            finished_subscriber = subscriber.with(tracing_wasm::WASMLayer::new(
+                tracing_wasm::WASMLayerConfig::default(),
+            ));
         }
 
         #[cfg(target_os = "android")]

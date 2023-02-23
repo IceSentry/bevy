@@ -1,6 +1,6 @@
 //! This example illustrates how to use logs in bevy.
 
-use bevy::{log::FileAppenderSettings, prelude::*};
+use bevy::prelude::*;
 
 fn main() {
     App::new()
