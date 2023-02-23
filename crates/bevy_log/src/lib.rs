@@ -114,7 +114,7 @@ impl Default for LogPlugin {
 }
 
 /// Enum to control how often a new log file will be created
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rolling {
     /// Creates a new file every minute and appends the date to the file name
     /// Date format: YYYY-MM-DD-HH-mm
@@ -245,6 +245,9 @@ impl Plugin for LogPlugin {
             };
 
             let file_appender_layer = if let Some(settings) = &self.file_appender_settings {
+                if settings.rolling == Rolling::Never && settings.prefix.is_empty() {
+                    panic!("Using the Rolling::Never variant with no prefix will result in an empty filename which is invalid");
+                }
                 let file_appender = tracing_appender::rolling::RollingFileAppender::new(
                     settings.rolling.into(),
                     &settings.path,
