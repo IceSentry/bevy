@@ -32,7 +32,7 @@ impl Plugin for EdgeDetectionPlugin {
         render_app
             .init_resource::<EdgeDetectionPipeline>()
             .init_resource::<ConfigBuffer>()
-            .add_system_to_schedule(ExtractSchedule, extract_config)
+            .add_system(extract_config.in_schedule(ExtractSchedule))
             .add_system(prepare_config_buffer.in_set(RenderSet::Prepare));
 
         let node = EdgeDetectionNode::new(&mut render_app.world);
@@ -318,7 +318,7 @@ impl FromWorld for EdgeDetectionPipeline {
                 .resource_mut::<PipelineCache>()
                 .queue_render_pipeline(RenderPipelineDescriptor {
                     label: Some("edge_detection_pipeline".into()),
-                    layout: Some(vec![layout.clone()]),
+                    layout: vec![layout.clone()],
                     // This will setup a fullscreen triangle for the vertex state
                     vertex: fullscreen_shader_vertex_state(),
                     fragment: Some(FragmentState {
@@ -334,6 +334,7 @@ impl FromWorld for EdgeDetectionPipeline {
                     primitive: PrimitiveState::default(),
                     depth_stencil: None,
                     multisample: MultisampleState::default(),
+                    push_constant_ranges: vec![],
                 });
 
         Self {

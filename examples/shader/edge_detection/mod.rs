@@ -40,7 +40,7 @@ fn main() {
         .add_startup_system(setup_camera)
         .add_startup_system(spawn_cornell_box)
         .add_startup_system(spawn_boxes)
-        .add_startup_system(set_unlit.in_set(StartupSet::PostStartup))
+        .add_startup_system(set_unlit.in_base_set(StartupSet::PostStartup))
         .add_system(change_text_system)
         .add_system(camera::fly_camera)
         .add_system(update_config)
@@ -69,25 +69,26 @@ fn setup_camera(mut commands: Commands, asset_server: Res<AssetServer>) {
         font_size: 16.0,
         color: Color::WHITE,
     };
-    commands.spawn((
-        TextBundle::from_sections([
-            TextSection::from_style(style.clone()),
-            TextSection::new(" fps\n", style.clone()),
-            TextSection::from_style(style.clone()),
-            TextSection::new(" ms", style),
-        ])
-        .with_style(Style {
-            position_type: PositionType::Absolute,
-            position: UiRect {
-                top: Val::Px(5.0),
-                left: Val::Px(5.0),
-                ..default()
-            },
+    // commands
+    //     .spawn(
+    //         TextBundle::from_sections([
+    //             TextSection::from_style(style.clone()),
+    //             TextSection::new(" fps\n", style.clone()),
+    //             TextSection::from_style(style.clone()),
+    //             TextSection::new(" ms", style),
+    //         ])
+    //         .with_style(Style {
+    //             position_type: PositionType::Absolute,
+    //             position: UiRect {
+    //                 top: Val::Px(5.0),
+    //                 left: Val::Px(5.0),
+    //                 ..default()
+    //             },
 
-            ..default()
-        }),
-        BackgroundColor(Color::BLACK.with_a(0.75)),
-    ));
+    //             ..default()
+    //         }),
+    //     )
+    //     .insert(BackgroundColor(Color::BLACK.with_a(0.75)));
 }
 
 fn spawn_cornell_box(
@@ -97,7 +98,7 @@ fn spawn_cornell_box(
 ) {
     let white = materials.add(Color::WHITE.into());
     let plane_size = 5.0;
-    let plane = meshes.add(shape::Plane { size: plane_size }.into());
+    let plane = meshes.add(shape::Plane::from_size(plane_size).into());
 
     // bottom
     commands.spawn(PbrBundle {
