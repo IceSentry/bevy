@@ -391,6 +391,10 @@ category = "3D Rendering"
 wasm = true
 
 [[example]]
+name = "force_field"
+path = "examples/3d/force_field.rs"
+
+[[example]]
 name = "3d_shapes"
 path = "examples/3d/3d_shapes.rs"
 
