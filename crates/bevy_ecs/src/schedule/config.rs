@@ -37,7 +37,7 @@ impl SystemSetConfig {
 
 /// A [`System`] with scheduling metadata.
 pub struct SystemConfig {
-    pub(super) system: BoxedSystem,
+    pub system: BoxedSystem,
     pub(super) graph_info: GraphInfo,
     pub(super) conditions: Vec<BoxedCondition>,
 }
