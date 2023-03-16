@@ -26,13 +26,6 @@ impl RenderGraphV2 {
         }
     }
 
-    pub fn update(&mut self, world: &mut World) {
-        for system in &mut self.systems {
-            let Some(system) = system else { continue; };
-            system.update_archetype_component_access(world);
-        }
-    }
-
     pub fn run(&mut self, world: &mut World) {
         let view_entity = Entity::PLACEHOLDER;
 
@@ -87,10 +80,8 @@ mod tests {
 
         graph.init(&mut world);
 
-        graph.update(&mut world);
         graph.run(&mut world);
 
-        graph.update(&mut world);
         graph.run(&mut world);
     }
 }
