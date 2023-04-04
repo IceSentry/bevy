@@ -73,7 +73,7 @@ impl Plugin for TemporalAntiAliasPlugin {
                     prepare_taa_pipelines.in_set(RenderSet::Prepare),
                 ),
             )
-            .add_render_graph_node::<TAANode>(core_3d::graph::NAME, draw_3d_graph::node::TAA)
+            .add_render_graph_node::<TAANode>(core_3d::graph::NAME)
             .add_render_graph_edges(
                 core_3d::graph::NAME,
                 &[

@@ -97,13 +97,16 @@ impl Plugin for Core3dPlugin {
         let mut graph = render_app.world.resource_mut::<RenderGraph>();
 
         let mut draw_3d_graph = RenderGraph::default();
-        draw_3d_graph.add_node(graph::node::PREPASS, prepass_node);
-        draw_3d_graph.add_node(graph::node::START_MAIN_PASS, EmptyNode);
-        draw_3d_graph.add_node(graph::node::MAIN_OPAQUE_PASS, opaque_node_3d);
-        draw_3d_graph.add_node(graph::node::MAIN_TRANSPARENT_PASS, transparent_node_3d);
-        draw_3d_graph.add_node(graph::node::END_MAIN_PASS, EmptyNode);
+        draw_3d_graph.add_node(prepass_node);
+        draw_3d_graph.add_node(EmptyNode::new(graph::node::START_MAIN_PASS));
+        draw_3d_graph.add_node(opaque_node_3d);
+        draw_3d_graph.add_node(transparent_node_3d);
+        draw_3d_graph.add_node(EmptyNode::new(graph::node::END_MAIN_PASS));
         draw_3d_graph.add_node(graph::node::TONEMAPPING, tonemapping);
-        draw_3d_graph.add_node(graph::node::END_MAIN_PASS_POST_PROCESSING, EmptyNode);
+        draw_3d_graph.add_node(
+            graph::node::END_MAIN_PASS_POST_PROCESSING,
+            EmptyNode::new(graph::node::END_MAIN_PASS_POST_PROCESSING),
+        );
         draw_3d_graph.add_node(graph::node::UPSCALING, upscaling);
 
         draw_3d_graph.add_node_edges(&[

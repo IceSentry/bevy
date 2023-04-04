@@ -116,10 +116,7 @@ impl Plugin for CASPlugin {
             .init_resource::<SpecializedRenderPipelines<CASPipeline>>()
             .add_systems(Render, prepare_cas_pipelines.in_set(RenderSet::Prepare))
             // 3d
-            .add_render_graph_node::<CASNode>(
-                core_3d::graph::NAME,
-                core_3d::graph::node::CONTRAST_ADAPTIVE_SHARPENING,
-            )
+            .add_render_graph_node::<CASNode>(core_3d::graph::NAME)
             .add_render_graph_edge(
                 core_3d::graph::NAME,
                 core_3d::graph::node::TONEMAPPING,
@@ -136,10 +133,7 @@ impl Plugin for CASPlugin {
                 core_3d::graph::node::END_MAIN_PASS_POST_PROCESSING,
             )
             // 2d
-            .add_render_graph_node::<CASNode>(
-                core_2d::graph::NAME,
-                core_2d::graph::node::CONTRAST_ADAPTIVE_SHARPENING,
-            )
+            .add_render_graph_node::<CASNode>(core_2d::graph::NAME)
             .add_render_graph_edge(
                 core_2d::graph::NAME,
                 core_2d::graph::node::TONEMAPPING,

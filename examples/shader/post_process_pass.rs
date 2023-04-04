@@ -82,8 +82,6 @@ impl Plugin for PostProcessPlugin {
             .add_render_graph_node::<PostProcessNode>(
                 // Specifiy the name of the graph, in this case we want the graph for 3d
                 core_3d::graph::NAME,
-                // It also needs the name of the node
-                PostProcessNode::NAME,
             )
             .add_render_graph_edges(
                 core_3d::graph::NAME,

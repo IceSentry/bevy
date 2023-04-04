@@ -9,7 +9,7 @@ use bevy_ecs::{prelude::World, system::Resource};
 use bevy_utils::HashMap;
 use std::{borrow::Cow, fmt::Debug};
 
-use super::EdgeExistence;
+use super::{EdgeExistence, NodeCustomLabel};
 
 /// The render graph configures the modular, parallel and re-usable render logic.
 /// It is a retained and stateless (nodes themselves may have their own internal state) structure,
@@ -75,7 +75,7 @@ impl RenderGraph {
     pub fn set_input(&mut self, inputs: Vec<SlotInfo>) -> NodeId {
         assert!(self.input_node.is_none(), "Graph already has an input node");
 
-        let id = self.add_node("GraphInputNode", GraphInputNode { inputs });
+        let id = self.add_node(GraphInputNode { inputs });
         self.input_node = Some(id);
         id
     }
@@ -106,12 +106,12 @@ impl RenderGraph {
 
     /// Adds the `node` with the `name` to the graph.
     /// If the name is already present replaces it instead.
-    pub fn add_node<T>(&mut self, name: impl Into<Cow<'static, str>>, node: T) -> NodeId
+    pub fn add_node<T>(&mut self, node: T) -> NodeId
     where
-        T: Node,
+        T: Node + NodeCustomLabel,
     {
         let id = NodeId::new();
-        let name = name.into();
+        let name = Cow::Borrowed(T::label());
         let mut node_state = NodeState::new(id, node);
         node_state.name = Some(name.clone());
         self.nodes.insert(id, node_state);
@@ -676,6 +676,8 @@ impl Node for GraphInputNode {
 
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
+
     use crate::{
         render_graph::{
             Edge, Node, NodeId, NodeRunError, RenderGraph, RenderGraphContext, RenderGraphError,
@@ -683,7 +685,7 @@ mod tests {
         },
         renderer::RenderContext,
     };
-    use bevy_ecs::world::{FromWorld, World};
+    use bevy_ecs::world::World;
     use bevy_utils::HashSet;
 
     #[derive(Debug)]
@@ -743,10 +745,10 @@ mod tests {
     #[test]
     fn test_graph_edges() {
         let mut graph = RenderGraph::default();
-        let a_id = graph.add_node("A", TestNode::new(0, 1));
-        let b_id = graph.add_node("B", TestNode::new(0, 1));
-        let c_id = graph.add_node("C", TestNode::new(1, 1));
-        let d_id = graph.add_node("D", TestNode::new(1, 0));
+        let a_id = graph.add_node(TestNode::new(0, 1));
+        let b_id = graph.add_node(TestNode::new(0, 1));
+        let c_id = graph.add_node(TestNode::new(1, 1));
+        let d_id = graph.add_node(TestNode::new(1, 0));
 
         graph.add_slot_edge("A", "out_0", "C", "in_0");
         graph.add_node_edge("B", "C");
@@ -799,7 +801,7 @@ mod tests {
 
         let mut graph = RenderGraph::default();
 
-        graph.add_node("A", MyNode { value: 42 });
+        graph.add_node(MyNode { value: 42 });
 
         let node: &MyNode = graph.get_node("A").unwrap();
         assert_eq!(node.value, 42, "node value matches");
@@ -816,9 +818,9 @@ mod tests {
     fn test_slot_already_occupied() {
         let mut graph = RenderGraph::default();
 
-        graph.add_node("A", TestNode::new(0, 1));
-        graph.add_node("B", TestNode::new(0, 1));
-        graph.add_node("C", TestNode::new(1, 1));
+        graph.add_node(TestNode::new(0, 1));
+        graph.add_node(TestNode::new(0, 1));
+        graph.add_node(TestNode::new(1, 1));
 
         graph.add_slot_edge("A", 0, "C", 0);
         assert_eq!(
@@ -836,8 +838,8 @@ mod tests {
     fn test_edge_already_exists() {
         let mut graph = RenderGraph::default();
 
-        graph.add_node("A", TestNode::new(0, 1));
-        graph.add_node("B", TestNode::new(1, 0));
+        graph.add_node(TestNode::new(0, 1));
+        graph.add_node(TestNode::new(1, 0));
 
         graph.add_slot_edge("A", 0, "B", 0);
         assert_eq!(
@@ -854,8 +856,10 @@ mod tests {
 
     #[test]
     fn test_add_node_edges() {
-        struct SimpleNode;
-        impl Node for SimpleNode {
+        #[derive(Default)]
+        struct SimpleNode<T: Send + Sync + 'static>(PhantomData<T>);
+
+        impl<T: Send + Sync + 'static> Node for SimpleNode<T> {
             fn run(
                 &self,
                 _graph: &mut RenderGraphContext,
@@ -865,16 +869,19 @@ mod tests {
                 Ok(())
             }
         }
-        impl FromWorld for SimpleNode {
-            fn from_world(_world: &mut World) -> Self {
-                Self
-            }
-        }
+
+        #[derive(Default)]
+        struct A;
+        unsafe impl Send for A {}
+        unsafe impl Sync for A {}
+
+        #[derive(Default)]
+        struct B;
 
         let mut graph = RenderGraph::default();
-        let a_id = graph.add_node("A", SimpleNode);
-        let b_id = graph.add_node("B", SimpleNode);
-        let c_id = graph.add_node("C", SimpleNode);
+        let a_id = graph.add_node(SimpleNode::<A>::default());
+        let b_id = graph.add_node(SimpleNode::<B>::default());
+        let c_id = graph.add_node(SimpleNode::<A>::default());
 
         graph.add_node_edges(&["A", "B", "C"]);
 

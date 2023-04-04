@@ -11,7 +11,6 @@ pub trait RenderGraphApp {
     fn add_render_graph_node<T: Node + FromWorld>(
         &mut self,
         sub_graph_name: &'static str,
-        node_name: &'static str,
     ) -> &mut Self;
     /// Automatically add the required node edges based on the given ordering
     fn add_render_graph_edges(
@@ -32,7 +31,6 @@ impl RenderGraphApp for App {
     fn add_render_graph_node<T: Node + FromWorld>(
         &mut self,
         sub_graph_name: &'static str,
-        node_name: &'static str,
     ) -> &mut Self {
         let node = T::from_world(&mut self.world);
         let mut render_graph = self.world.get_resource_mut::<RenderGraph>().expect(
@@ -40,7 +38,7 @@ impl RenderGraphApp for App {
         );
 
         let graph = render_graph.sub_graph_mut(sub_graph_name);
-        graph.add_node(node_name, node);
+        graph.add_node(node);
         self
     }
 

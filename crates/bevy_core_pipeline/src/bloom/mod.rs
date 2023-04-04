@@ -16,7 +16,7 @@ use bevy_render::{
         ComponentUniforms, DynamicUniformIndex, ExtractComponentPlugin, UniformComponentPlugin,
     },
     prelude::Color,
-    render_graph::{Node, NodeRunError, RenderGraphApp, RenderGraphContext},
+    render_graph::{Node, NodeCustomLabel, NodeRunError, RenderGraphApp, RenderGraphContext},
     render_resource::*,
     renderer::{RenderContext, RenderDevice},
     texture::{CachedTexture, TextureCache},
@@ -73,22 +73,22 @@ impl Plugin for BloomPlugin {
                 ),
             )
             // Add bloom to the 3d render graph
-            .add_render_graph_node::<BloomNode>(core_3d::graph::NAME, core_3d::graph::node::BLOOM)
+            .add_render_graph_node::<BloomNode>(core_3d::graph::NAME)
             .add_render_graph_edges(
                 core_3d::graph::NAME,
                 &[
                     core_3d::graph::node::END_MAIN_PASS,
-                    core_3d::graph::node::BLOOM,
+                    BloomNode::label(),
                     core_3d::graph::node::TONEMAPPING,
                 ],
             )
             // Add bloom to the 2d render graph
-            .add_render_graph_node::<BloomNode>(core_2d::graph::NAME, core_2d::graph::node::BLOOM)
+            .add_render_graph_node::<BloomNode>(core_2d::graph::NAME)
             .add_render_graph_edges(
                 core_2d::graph::NAME,
                 &[
                     core_2d::graph::node::MAIN_PASS,
-                    core_2d::graph::node::BLOOM,
+                    BloomNode::label(),
                     core_2d::graph::node::TONEMAPPING,
                 ],
             );

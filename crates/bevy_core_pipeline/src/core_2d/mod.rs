@@ -70,10 +70,13 @@ impl Plugin for Core2dPlugin {
         let mut graph = render_app.world.resource_mut::<RenderGraph>();
 
         let mut draw_2d_graph = RenderGraph::default();
-        draw_2d_graph.add_node(graph::node::MAIN_PASS, pass_node_2d);
-        draw_2d_graph.add_node(graph::node::TONEMAPPING, tonemapping);
-        draw_2d_graph.add_node(graph::node::END_MAIN_PASS_POST_PROCESSING, EmptyNode);
-        draw_2d_graph.add_node(graph::node::UPSCALING, upscaling);
+        draw_2d_graph.add_node(pass_node_2d);
+        draw_2d_graph.add_node(tonemapping);
+        struct EndMainPassPostProcessing;
+        unsafe impl Send for EndMainPassPostProcessing {}
+        unsafe impl Sync for EndMainPassPostProcessing {}
+        draw_2d_graph.add_node(EmptyNode::<EndMainPassPostProcessing>::default());
+        draw_2d_graph.add_node(upscaling);
 
         draw_2d_graph.add_node_edges(&[
             graph::node::MAIN_PASS,

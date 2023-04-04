@@ -8,7 +8,7 @@ use crate::{
 };
 use bevy_ecs::world::World;
 use downcast_rs::{impl_downcast, Downcast};
-use std::{borrow::Cow, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug, marker::PhantomData};
 use thiserror::Error;
 
 define_atomic_id!(NodeId);
@@ -53,6 +53,14 @@ pub trait Node: Downcast + Send + Sync + 'static {
 }
 
 impl_downcast!(Node);
+
+pub trait NodeCustomLabel {
+    fn label() -> &'static str {
+        std::any::type_name::<Self>()
+    }
+}
+
+impl<N: Node> NodeCustomLabel for N {}
 
 #[derive(Error, Debug, Eq, PartialEq)]
 pub enum NodeRunError {
@@ -293,9 +301,12 @@ impl From<NodeId> for NodeLabel {
 /// A [`Node`] without any inputs, outputs and subgraphs, which does nothing when run.
 /// Used (as a label) to bundle multiple dependencies into one inside
 /// the [`RenderGraph`](super::RenderGraph).
-pub struct EmptyNode;
+#[derive(Default)]
+pub struct EmptyNode<T: Send + Sync> {
+    _marker: PhantomData<T>,
+}
 
-impl Node for EmptyNode {
+impl<T: Send + Sync + 'static> Node for EmptyNode<T> {
     fn run(
         &self,
         _graph: &mut RenderGraphContext,
