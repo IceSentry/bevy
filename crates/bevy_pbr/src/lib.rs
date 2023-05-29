@@ -10,6 +10,7 @@ mod light;
 mod material;
 mod parallax;
 mod pbr_material;
+mod post_process_material;
 mod prepass;
 mod render;
 
@@ -21,6 +22,7 @@ pub use light::*;
 pub use material::*;
 pub use parallax::*;
 pub use pbr_material::*;
+pub use post_process_material::*;
 pub use prepass::*;
 pub use render::*;
 
