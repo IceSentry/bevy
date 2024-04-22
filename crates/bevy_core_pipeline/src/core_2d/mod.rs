@@ -1,4 +1,5 @@
 mod camera_2d;
+mod main_opaque_pass_2d_node;
 mod main_transparent_pass_2d_node;
 
 pub mod graph {
@@ -15,6 +16,7 @@ pub mod graph {
     pub enum Node2d {
         MsaaWriteback,
         StartMainPass,
+        MainOpaquePass,
         MainTransparentPass,
         EndMainPass,
         Bloom,
@@ -29,6 +31,7 @@ pub mod graph {
 use std::ops::Range;
 
 pub use camera_2d::*;
+pub use main_opaque_pass_2d_node::*;
 pub use main_transparent_pass_2d_node::*;
 
 use bevy_app::{App, Plugin};
@@ -62,16 +65,24 @@ impl Plugin for Core2dPlugin {
             return;
         };
         render_app
+            .init_resource::<DrawFunctions<Opaque2d>>()
             .init_resource::<DrawFunctions<Transparent2d>>()
             .add_systems(ExtractSchedule, extract_core_2d_camera_phases)
             .add_systems(
                 Render,
-                sort_phase_system::<Transparent2d>.in_set(RenderSet::PhaseSort),
+                (
+                    sort_phase_system::<Opaque2d>.in_set(RenderSet::PhaseSort),
+                    sort_phase_system::<Transparent2d>.in_set(RenderSet::PhaseSort),
+                ),
             );
 
         render_app
             .add_render_sub_graph(Core2d)
             .add_render_graph_node::<EmptyNode>(Core2d, Node2d::StartMainPass)
+            .add_render_graph_node::<ViewNodeRunner<MainOpaquePass2dNode>>(
+                Core2d,
+                Node2d::MainOpaquePass,
+            )
             .add_render_graph_node::<ViewNodeRunner<MainTransparentPass2dNode>>(
                 Core2d,
                 Node2d::MainTransparentPass,
@@ -84,6 +95,7 @@ impl Plugin for Core2dPlugin {
                 Core2d,
                 (
                     Node2d::StartMainPass,
+                    Node2d::MainOpaquePass,
                     Node2d::MainTransparentPass,
                     Node2d::EndMainPass,
                     Node2d::Tonemapping,
@@ -91,6 +103,69 @@ impl Plugin for Core2dPlugin {
                     Node2d::Upscaling,
                 ),
             );
+    }
+}
+
+/// Opaque 2D [`SortedPhaseItem`]s.
+pub struct Opaque2d {
+    pub sort_key: FloatOrd,
+    pub entity: Entity,
+    pub pipeline: CachedRenderPipelineId,
+    pub draw_function: DrawFunctionId,
+    pub batch_range: Range<u32>,
+    pub dynamic_offset: Option<NonMaxU32>,
+}
+impl PhaseItem for Opaque2d {
+    #[inline]
+    fn entity(&self) -> Entity {
+        self.entity
+    }
+
+    #[inline]
+    fn draw_function(&self) -> DrawFunctionId {
+        self.draw_function
+    }
+
+    #[inline]
+    fn batch_range(&self) -> &Range<u32> {
+        &self.batch_range
+    }
+
+    #[inline]
+    fn batch_range_mut(&mut self) -> &mut Range<u32> {
+        &mut self.batch_range
+    }
+
+    #[inline]
+    fn dynamic_offset(&self) -> Option<NonMaxU32> {
+        self.dynamic_offset
+    }
+
+    #[inline]
+    fn dynamic_offset_mut(&mut self) -> &mut Option<NonMaxU32> {
+        &mut self.dynamic_offset
+    }
+}
+
+impl SortedPhaseItem for Opaque2d {
+    type SortKey = FloatOrd;
+
+    #[inline]
+    fn sort_key(&self) -> Self::SortKey {
+        self.sort_key
+    }
+
+    #[inline]
+    fn sort(items: &mut [Self]) {
+        // radsort is a stable radix sort that performed better than `slice::sort_by_key` or `slice::sort_unstable_by_key`.
+        radsort::sort_by_key(items, |item| item.sort_key().0);
+    }
+}
+
+impl CachedRenderPipelinePhaseItem for Opaque2d {
+    #[inline]
+    fn cached_pipeline(&self) -> CachedRenderPipelineId {
+        self.pipeline
     }
 }
 
@@ -163,9 +238,11 @@ pub fn extract_core_2d_camera_phases(
 ) {
     for (entity, camera) in &cameras_2d {
         if camera.is_active {
-            commands
-                .get_or_spawn(entity)
-                .insert(SortedRenderPhase::<Transparent2d>::default());
+            commands.get_or_spawn(entity).insert((
+                SortedRenderPhase::<Opaque2d>::default(),
+                // SortedRenderPhase::<AlphaMask2d>::default(),
+                SortedRenderPhase::<Transparent2d>::default(),
+            ));
         }
     }
 }
