@@ -1,7 +1,7 @@
 use bevy_app::Plugin;
 use bevy_asset::{load_internal_asset, AssetId, Handle};
 
-use bevy_core_pipeline::core_2d::{Opaque2d, Transparent2d};
+use bevy_core_pipeline::core_2d::{AlphaMask2d, Opaque2d, Transparent2d};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::entity::EntityHashMap;
 use bevy_ecs::{
@@ -103,6 +103,8 @@ impl Plugin for Mesh2dRenderPlugin {
                     Render,
                     (
                         batch_and_prepare_sorted_render_phase::<Opaque2d, Mesh2dPipeline>
+                            .in_set(RenderSet::PrepareResources),
+                        batch_and_prepare_sorted_render_phase::<AlphaMask2d, Mesh2dPipeline>
                             .in_set(RenderSet::PrepareResources),
                         batch_and_prepare_sorted_render_phase::<Transparent2d, Mesh2dPipeline>
                             .in_set(RenderSet::PrepareResources),

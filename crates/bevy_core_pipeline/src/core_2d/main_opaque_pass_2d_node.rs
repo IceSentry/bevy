@@ -12,6 +12,8 @@ use bevy_render::{
 #[cfg(feature = "trace")]
 use bevy_utils::tracing::info_span;
 
+use super::AlphaMask2d;
+
 /// A [`bevy_render::render_graph::Node`] that runs the [`Opaque2d`] [`SortedRenderPhase`]
 #[derive(Default)]
 pub struct MainOpaquePass2dNode;
@@ -19,7 +21,7 @@ impl ViewNode for MainOpaquePass2dNode {
     type ViewQuery = (
         &'static ExtractedCamera,
         &'static SortedRenderPhase<Opaque2d>,
-        // &'static SortedRenderPhase<AlphaMask2d>,
+        &'static SortedRenderPhase<AlphaMask2d>,
         &'static ViewTarget,
         // &'static ViewDepthTexture,
     );
@@ -31,7 +33,7 @@ impl ViewNode for MainOpaquePass2dNode {
         (
             camera,
             opaque_phase,
-            // alpha_mask_phase,
+            alpha_mask_phase,
             target,
             // depth,
         ): QueryItem<'w, Self::ViewQuery>,
@@ -74,6 +76,13 @@ impl ViewNode for MainOpaquePass2dNode {
                 #[cfg(feature = "trace")]
                 let _opaque_main_pass_2d_span = info_span!("opaque_main_pass_2d").entered();
                 opaque_phase.render(&mut render_pass, world, view_entity);
+            }
+
+            // Alpha mask draws
+            if !alpha_mask_phase.items.is_empty() {
+                #[cfg(feature = "trace")]
+                let _opaque_main_pass_2d_span = info_span!("alpha_mask_main_pass_2d").entered();
+                alpha_mask_phase.render(&mut render_pass, world, view_entity);
             }
 
             pass_span.end(&mut render_pass);

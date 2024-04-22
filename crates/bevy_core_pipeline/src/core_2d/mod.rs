@@ -66,12 +66,14 @@ impl Plugin for Core2dPlugin {
         };
         render_app
             .init_resource::<DrawFunctions<Opaque2d>>()
+            .init_resource::<DrawFunctions<AlphaMask2d>>()
             .init_resource::<DrawFunctions<Transparent2d>>()
             .add_systems(ExtractSchedule, extract_core_2d_camera_phases)
             .add_systems(
                 Render,
                 (
                     sort_phase_system::<Opaque2d>.in_set(RenderSet::PhaseSort),
+                    sort_phase_system::<AlphaMask2d>.in_set(RenderSet::PhaseSort),
                     sort_phase_system::<Transparent2d>.in_set(RenderSet::PhaseSort),
                 ),
             );
@@ -169,6 +171,69 @@ impl CachedRenderPipelinePhaseItem for Opaque2d {
     }
 }
 
+/// AlphaMask 2D [`SortedPhaseItem`]s.
+pub struct AlphaMask2d {
+    pub sort_key: FloatOrd,
+    pub entity: Entity,
+    pub pipeline: CachedRenderPipelineId,
+    pub draw_function: DrawFunctionId,
+    pub batch_range: Range<u32>,
+    pub dynamic_offset: Option<NonMaxU32>,
+}
+impl PhaseItem for AlphaMask2d {
+    #[inline]
+    fn entity(&self) -> Entity {
+        self.entity
+    }
+
+    #[inline]
+    fn draw_function(&self) -> DrawFunctionId {
+        self.draw_function
+    }
+
+    #[inline]
+    fn batch_range(&self) -> &Range<u32> {
+        &self.batch_range
+    }
+
+    #[inline]
+    fn batch_range_mut(&mut self) -> &mut Range<u32> {
+        &mut self.batch_range
+    }
+
+    #[inline]
+    fn dynamic_offset(&self) -> Option<NonMaxU32> {
+        self.dynamic_offset
+    }
+
+    #[inline]
+    fn dynamic_offset_mut(&mut self) -> &mut Option<NonMaxU32> {
+        &mut self.dynamic_offset
+    }
+}
+
+impl SortedPhaseItem for AlphaMask2d {
+    type SortKey = FloatOrd;
+
+    #[inline]
+    fn sort_key(&self) -> Self::SortKey {
+        self.sort_key
+    }
+
+    #[inline]
+    fn sort(items: &mut [Self]) {
+        // radsort is a stable radix sort that performed better than `slice::sort_by_key` or `slice::sort_unstable_by_key`.
+        radsort::sort_by_key(items, |item| item.sort_key().0);
+    }
+}
+
+impl CachedRenderPipelinePhaseItem for AlphaMask2d {
+    #[inline]
+    fn cached_pipeline(&self) -> CachedRenderPipelineId {
+        self.pipeline
+    }
+}
+
 pub struct Transparent2d {
     pub sort_key: FloatOrd,
     pub entity: Entity,
@@ -240,7 +305,7 @@ pub fn extract_core_2d_camera_phases(
         if camera.is_active {
             commands.get_or_spawn(entity).insert((
                 SortedRenderPhase::<Opaque2d>::default(),
-                // SortedRenderPhase::<AlphaMask2d>::default(),
+                SortedRenderPhase::<AlphaMask2d>::default(),
                 SortedRenderPhase::<Transparent2d>::default(),
             ));
         }

@@ -1,7 +1,7 @@
 use bevy_app::{App, Plugin};
 use bevy_asset::{Asset, AssetApp, AssetId, AssetServer, Handle};
 use bevy_core_pipeline::{
-    core_2d::{Opaque2d, Transparent2d},
+    core_2d::{AlphaMask2d, Opaque2d, Transparent2d},
     tonemapping::{DebandDither, Tonemapping},
 };
 use bevy_derive::{Deref, DerefMut};
@@ -138,9 +138,10 @@ pub trait Material2d: AsBindGroup + Asset + Clone + Sized {
     }
 }
 
-#[derive(Clone, Copy, Debug, Reflect, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Reflect, PartialEq)]
 pub enum AlphaMode2d {
     Opaque,
+    Mask(f32),
     Blend,
 }
 
@@ -165,6 +166,7 @@ where
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .add_render_command::<Opaque2d, DrawMaterial2d<M>>()
+                .add_render_command::<AlphaMask2d, DrawMaterial2d<M>>()
                 .add_render_command::<Transparent2d, DrawMaterial2d<M>>()
                 .init_resource::<RenderMaterial2dInstances<M>>()
                 .init_resource::<SpecializedMeshPipelines<Material2dPipeline<M>>>()
@@ -387,6 +389,7 @@ pub const fn tonemapping_pipeline_key(tonemapping: Tonemapping) -> Mesh2dPipelin
 #[allow(clippy::too_many_arguments)]
 pub fn queue_material2d_meshes<M: Material2d>(
     opaque_draw_functions: Res<DrawFunctions<Opaque2d>>,
+    alpha_mask_draw_functions: Res<DrawFunctions<AlphaMask2d>>,
     transparent_draw_functions: Res<DrawFunctions<Transparent2d>>,
     material2d_pipeline: Res<Material2dPipeline<M>>,
     mut pipelines: ResMut<SpecializedMeshPipelines<Material2dPipeline<M>>>,
@@ -402,6 +405,7 @@ pub fn queue_material2d_meshes<M: Material2d>(
         Option<&Tonemapping>,
         Option<&DebandDither>,
         &mut SortedRenderPhase<Opaque2d>,
+        &mut SortedRenderPhase<AlphaMask2d>,
         &mut SortedRenderPhase<Transparent2d>,
     )>,
 ) where
@@ -411,10 +415,18 @@ pub fn queue_material2d_meshes<M: Material2d>(
         return;
     }
 
-    for (view, visible_entities, tonemapping, dither, mut opaque_phase, mut transparent_phase) in
-        &mut views
+    for (
+        view,
+        visible_entities,
+        tonemapping,
+        dither,
+        mut opaque_phase,
+        mut alpha_mask_phase,
+        mut transparent_phase,
+    ) in &mut views
     {
         let draw_opaque_2d = opaque_draw_functions.read().id::<DrawMaterial2d<M>>();
+        let draw_alpha_mask_2d = alpha_mask_draw_functions.read().id::<DrawMaterial2d<M>>();
         let draw_transparent_2d = transparent_draw_functions.read().id::<DrawMaterial2d<M>>();
 
         let mut view_key = Mesh2dPipelineKey::from_msaa_samples(msaa.samples())
@@ -481,6 +493,17 @@ pub fn queue_material2d_meshes<M: Material2d>(
                         dynamic_offset: None,
                     });
                 }
+                AlphaMode2d::Mask(_) => alpha_mask_phase.add(AlphaMask2d {
+                    entity: *visible_entity,
+                    draw_function: draw_alpha_mask_2d,
+                    pipeline: pipeline_id,
+                    // Back-to-front ordering
+                    // TODO we need a depth buffer to do front-to-back ordering
+                    sort_key: FloatOrd(mesh_z + material_2d.properties.depth_bias),
+                    // Batching is done in batch_and_prepare_render_phase
+                    batch_range: 0..1,
+                    dynamic_offset: None,
+                }),
                 AlphaMode2d::Blend => {
                     transparent_phase.add(Transparent2d {
                         entity: *visible_entity,

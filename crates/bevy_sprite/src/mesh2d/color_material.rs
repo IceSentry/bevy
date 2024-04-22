@@ -93,7 +93,7 @@ bitflags::bitflags! {
         const TEXTURE                    = 1 << 0;
         // Bitmask reserving bits for the [`AlphaMode2d`]
         // Values are just sequential values bitshifted into
-        // the bitmask, and can range from 0 to 7.
+        // the bitmask, and can range from 0 to 3.
         const ALPHA_MODE_RESERVED_BITS   = Self::ALPHA_MODE_MASK_BITS << Self::ALPHA_MODE_SHIFT_BITS;
         const ALPHA_MODE_OPAQUE          = 0 << Self::ALPHA_MODE_SHIFT_BITS;
         const ALPHA_MODE_MASK            = 1 << Self::ALPHA_MODE_SHIFT_BITS;
@@ -104,7 +104,7 @@ bitflags::bitflags! {
 }
 
 impl ColorMaterialFlags {
-    const ALPHA_MODE_MASK_BITS: u32 = 0b111;
+    const ALPHA_MODE_MASK_BITS: u32 = 0b11;
     const ALPHA_MODE_SHIFT_BITS: u32 = 32 - Self::ALPHA_MODE_MASK_BITS.count_ones();
 }
 
@@ -113,6 +113,7 @@ impl ColorMaterialFlags {
 pub struct ColorMaterialUniform {
     pub color: Vec4,
     pub flags: u32,
+    pub alpha_cutoff: f32,
 }
 
 impl AsBindGroupShaderType<ColorMaterialUniform> for ColorMaterial {
@@ -122,16 +123,20 @@ impl AsBindGroupShaderType<ColorMaterialUniform> for ColorMaterial {
             flags |= ColorMaterialFlags::TEXTURE;
         }
 
-        if self.alpha_mode == AlphaMode2d::Blend {
-            flags |= ColorMaterialFlags::ALPHA_MODE_BLEND;
-        } else {
-            // TODO alpha mask 2d
-            flags |= ColorMaterialFlags::ALPHA_MODE_OPAQUE;
-        }
-
+        // Defaults to 0.5 like in 3d
+        let mut alpha_cutoff = 0.5;
+        match self.alpha_mode {
+            AlphaMode2d::Opaque => flags |= ColorMaterialFlags::ALPHA_MODE_OPAQUE,
+            AlphaMode2d::Mask(c) => {
+                alpha_cutoff = c;
+                flags |= ColorMaterialFlags::ALPHA_MODE_MASK;
+            }
+            AlphaMode2d::Blend => flags |= ColorMaterialFlags::ALPHA_MODE_BLEND,
+        };
         ColorMaterialUniform {
             color: LinearRgba::from(self.color).to_f32_array().into(),
             flags: flags.bits(),
+            alpha_cutoff,
         }
     }
 }
