@@ -4,6 +4,7 @@ use bevy_asset::{load_internal_asset, AssetId};
 use bevy_core_pipeline::{
     core_3d::{AlphaMask3d, Opaque3d, Transmissive3d, Transparent3d, CORE_3D_DEPTH_FORMAT},
     deferred::{AlphaMask3dDeferred, Opaque3dDeferred},
+    oit::OrderIndependentTransparent3d,
 };
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::entity::EntityHashMap;
@@ -134,6 +135,7 @@ impl Plugin for MeshRenderPlugin {
             BinnedRenderPhasePlugin::<AlphaMask3dDeferred, MeshPipeline>::default(),
             SortedRenderPhasePlugin::<Transmissive3d, MeshPipeline>::default(),
             SortedRenderPhasePlugin::<Transparent3d, MeshPipeline>::default(),
+            SortedRenderPhasePlugin::<OrderIndependentTransparent3d, MeshPipeline>::default(),
         ));
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {

@@ -24,6 +24,7 @@ pub mod graph {
         MainOpaquePass,
         MainTransmissivePass,
         MainTransparentPass,
+        OitPass,
         EndMainPass,
         Taa,
         MotionBlur,
@@ -79,6 +80,7 @@ use crate::{
         AlphaMask3dDeferred, Opaque3dDeferred, DEFERRED_LIGHTING_PASS_ID_FORMAT,
         DEFERRED_PREPASS_FORMAT,
     },
+    oit::{node::OitNode, OrderIndependentTransparent3d},
     prepass::{
         node::PrepassNode, AlphaMask3dPrepass, DeferredPrepass, DepthPrepass, MotionVectorPrepass,
         NormalPrepass, Opaque3dPrepass, OpaqueNoLightmap3dBinKey, ViewPrepassTextures,
@@ -108,6 +110,7 @@ impl Plugin for Core3dPlugin {
             .init_resource::<DrawFunctions<AlphaMask3d>>()
             .init_resource::<DrawFunctions<Transmissive3d>>()
             .init_resource::<DrawFunctions<Transparent3d>>()
+            .init_resource::<DrawFunctions<OrderIndependentTransparent3d>>()
             .init_resource::<DrawFunctions<Opaque3dPrepass>>()
             .init_resource::<DrawFunctions<AlphaMask3dPrepass>>()
             .init_resource::<DrawFunctions<Opaque3dDeferred>>()
@@ -119,6 +122,7 @@ impl Plugin for Core3dPlugin {
                 (
                     sort_phase_system::<Transmissive3d>.in_set(RenderSet::PhaseSort),
                     sort_phase_system::<Transparent3d>.in_set(RenderSet::PhaseSort),
+                    sort_phase_system::<OrderIndependentTransparent3d>.in_set(RenderSet::PhaseSort),
                     prepare_core_3d_depth_textures.in_set(RenderSet::PrepareResources),
                     prepare_core_3d_transmission_textures.in_set(RenderSet::PrepareResources),
                     prepare_prepass_textures.in_set(RenderSet::PrepareResources),
@@ -150,6 +154,7 @@ impl Plugin for Core3dPlugin {
                 Core3d,
                 Node3d::MainTransparentPass,
             )
+            .add_render_graph_node::<ViewNodeRunner<OitNode>>(Core3d, Node3d::OitPass)
             .add_render_graph_node::<EmptyNode>(Core3d, Node3d::EndMainPass)
             .add_render_graph_node::<ViewNodeRunner<TonemappingNode>>(Core3d, Node3d::Tonemapping)
             .add_render_graph_node::<EmptyNode>(Core3d, Node3d::EndMainPassPostProcessing)
@@ -165,6 +170,7 @@ impl Plugin for Core3dPlugin {
                     Node3d::MainOpaquePass,
                     Node3d::MainTransmissivePass,
                     Node3d::MainTransparentPass,
+                    Node3d::OitPass,
                     Node3d::EndMainPass,
                     Node3d::Tonemapping,
                     Node3d::EndMainPassPostProcessing,
@@ -478,6 +484,7 @@ pub fn extract_core_3d_camera_phases(
                 BinnedRenderPhase::<AlphaMask3d>::default(),
                 SortedRenderPhase::<Transmissive3d>::default(),
                 SortedRenderPhase::<Transparent3d>::default(),
+                SortedRenderPhase::<OrderIndependentTransparent3d>::default(),
             ));
         }
     }
@@ -548,6 +555,7 @@ pub fn prepare_core_3d_depth_textures(
             With<BinnedRenderPhase<AlphaMask3d>>,
             With<SortedRenderPhase<Transmissive3d>>,
             With<SortedRenderPhase<Transparent3d>>,
+            With<SortedRenderPhase<OrderIndependentTransparent3d>>,
         ),
     >,
 ) {

@@ -17,6 +17,7 @@ pub mod fullscreen_vertex_shader;
 pub mod fxaa;
 pub mod motion_blur;
 pub mod msaa_writeback;
+pub mod oit;
 pub mod prepass;
 mod skybox;
 mod taa;

@@ -10,6 +10,7 @@ use bevy_core_pipeline::{
         AlphaMask3d, Camera3d, Opaque3d, Opaque3dBinKey, ScreenSpaceTransmissionQuality,
         Transmissive3d, Transparent3d,
     },
+    oit::{OitCamera, OrderIndependentTransparent3d},
     prepass::{
         DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass, OpaqueNoLightmap3dBinKey,
     },
@@ -260,6 +261,7 @@ where
                 .add_render_command::<Shadow, DrawPrepass<M>>()
                 .add_render_command::<Transmissive3d, DrawMaterial<M>>()
                 .add_render_command::<Transparent3d, DrawMaterial<M>>()
+                .add_render_command::<OrderIndependentTransparent3d, DrawOit<M>>()
                 .add_render_command::<Opaque3d, DrawMaterial<M>>()
                 .add_render_command::<AlphaMask3d, DrawMaterial<M>>()
                 .init_resource::<SpecializedMeshPipelines<MaterialPipeline<M>>>()
@@ -520,6 +522,7 @@ pub fn queue_material_meshes<M: Material>(
     alpha_mask_draw_functions: Res<DrawFunctions<AlphaMask3d>>,
     transmissive_draw_functions: Res<DrawFunctions<Transmissive3d>>,
     transparent_draw_functions: Res<DrawFunctions<Transparent3d>>,
+    oit_draw_functions: Res<DrawFunctions<OrderIndependentTransparent3d>>,
     material_pipeline: Res<MaterialPipeline<M>>,
     mut pipelines: ResMut<SpecializedMeshPipelines<MaterialPipeline<M>>>,
     pipeline_cache: Res<PipelineCache>,
@@ -545,14 +548,18 @@ pub fn queue_material_meshes<M: Material>(
         Option<&Camera3d>,
         Has<TemporalJitter>,
         Option<&Projection>,
-        &mut BinnedRenderPhase<Opaque3d>,
-        &mut BinnedRenderPhase<AlphaMask3d>,
-        &mut SortedRenderPhase<Transmissive3d>,
-        &mut SortedRenderPhase<Transparent3d>,
+        (
+            &mut BinnedRenderPhase<Opaque3d>,
+            &mut BinnedRenderPhase<AlphaMask3d>,
+            &mut SortedRenderPhase<Transmissive3d>,
+            &mut SortedRenderPhase<Transparent3d>,
+            &mut SortedRenderPhase<OrderIndependentTransparent3d>,
+        ),
         (
             Has<RenderViewLightProbes<EnvironmentMapLight>>,
             Has<RenderViewLightProbes<IrradianceVolume>>,
         ),
+        Has<OitCamera>,
     )>,
 ) where
     M::Data: PartialEq + Eq + Hash + Clone,
@@ -568,17 +575,22 @@ pub fn queue_material_meshes<M: Material>(
         camera_3d,
         temporal_jitter,
         projection,
-        mut opaque_phase,
-        mut alpha_mask_phase,
-        mut transmissive_phase,
-        mut transparent_phase,
+        (
+            mut opaque_phase,
+            mut alpha_mask_phase,
+            mut transmissive_phase,
+            mut transparent_phase,
+            mut oit_phase,
+        ),
         (has_environment_maps, has_irradiance_volumes),
+        has_oit_camera,
     ) in &mut views
     {
         let draw_opaque_pbr = opaque_draw_functions.read().id::<DrawMaterial<M>>();
         let draw_alpha_mask_pbr = alpha_mask_draw_functions.read().id::<DrawMaterial<M>>();
         let draw_transmissive_pbr = transmissive_draw_functions.read().id::<DrawMaterial<M>>();
         let draw_transparent_pbr = transparent_draw_functions.read().id::<DrawMaterial<M>>();
+        let draw_oit = oit_draw_functions.read().id::<DrawOit<M>>();
 
         let mut view_key = MeshPipelineKey::from_msaa_samples(msaa.samples())
             | MeshPipelineKey::from_hdr(view.hdr);
@@ -753,14 +765,26 @@ pub fn queue_material_meshes<M: Material>(
                 _ => {
                     let distance = rangefinder.distance_translation(&mesh_instance.translation)
                         + material.properties.depth_bias;
-                    transparent_phase.add(Transparent3d {
-                        entity: *visible_entity,
-                        draw_function: draw_transparent_pbr,
-                        pipeline: pipeline_id,
-                        distance,
-                        batch_range: 0..1,
-                        extra_index: PhaseItemExtraIndex::NONE,
-                    });
+
+                    if has_oit_camera {
+                        oit_phase.add(OrderIndependentTransparent3d {
+                            entity: *visible_entity,
+                            draw_function: draw_oit,
+                            pipeline: pipeline_id,
+                            distance,
+                            batch_range: 0..1,
+                            extra_index: PhaseItemExtraIndex::NONE,
+                        });
+                    } else {
+                        transparent_phase.add(Transparent3d {
+                            entity: *visible_entity,
+                            draw_function: draw_transparent_pbr,
+                            pipeline: pipeline_id,
+                            distance,
+                            batch_range: 0..1,
+                            extra_index: PhaseItemExtraIndex::NONE,
+                        });
+                    }
                 }
             }
         }

@@ -603,6 +603,17 @@ category = "3D Rendering"
 wasm = true
 
 [[example]]
+name = "order_independent_transparency"
+path = "examples/3d/order_independent_transparency.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.order_independent_transparency]
+name = "Order Independent Transparency"
+description = "Simple 3D scene with transparency"
+category = "3D Rendering"
+wasm = false
+
+[[example]]
 name = "3d_shapes"
 path = "examples/3d/3d_shapes.rs"
 doc-scrape-examples = true
