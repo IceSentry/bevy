@@ -1,4 +1,5 @@
 //! Used to test transforms with mesh2d
+//! This makes sure the depth buffer is correctly being used for opaque and transparent 2d meshes
 
 use bevy::{
     color::palettes::css::{BLUE, GREEN, WHITE},

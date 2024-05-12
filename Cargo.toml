@@ -566,11 +566,11 @@ category = "2D Rendering"
 wasm = true
 
 [[example]]
-name = "mesh2d_depth"
-path = "examples/2d/mesh2d_depth.rs"
+name = "mesh2d_transforms"
+path = "examples/2d/mesh2d_transforms.rs"
 doc-scrape-examples = true
 
-[package.metadata.example.mesh2d_depth]
+[package.metadata.example.mesh2d_transforms]
 name = "Mesh2d Transforms"
 description = "Used to test transforms with mesh2d"
 category = "2D Rendering"
