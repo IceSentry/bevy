@@ -68,23 +68,43 @@ fn setup(
         transform: Transform::from_xyz(200.0, 0.0, 0.0),
         ..default()
     });
-    commands.spawn(MaterialMesh2dBundle {
-        mesh: mesh_handle.clone().into(),
-        material: materials.add(ColorMaterial {
+    // commands.spawn(MaterialMesh2dBundle {
+    //     mesh: mesh_handle.clone().into(),
+    //     material: materials.add(ColorMaterial {
+    //         color: BLUE.with_alpha(0.7).into(),
+    //         alpha_mode: AlphaMode2d::Blend,
+    //         texture: Some(texture_handle.clone()),
+    //     }),
+    //     transform: Transform::from_xyz(300.0, 0.0, 1.0),
+    //     ..default()
+    // });
+    // commands.spawn(MaterialMesh2dBundle {
+    //     mesh: mesh_handle.clone().into(),
+    //     material: materials.add(ColorMaterial {
+    //         color: GREEN.with_alpha(0.7).into(),
+    //         alpha_mode: AlphaMode2d::Blend,
+    //         texture: Some(texture_handle),
+    //     }),
+    //     transform: Transform::from_xyz(400.0, 0.0, -1.0),
+    //     ..default()
+    // });
+
+    // Interaction with sprites
+    commands.spawn(SpriteBundle {
+        texture: texture_handle.clone(),
+        sprite: Sprite {
             color: BLUE.with_alpha(0.7).into(),
-            alpha_mode: AlphaMode2d::Blend,
-            texture: Some(texture_handle.clone()),
-        }),
+            ..default()
+        },
         transform: Transform::from_xyz(300.0, 0.0, 1.0),
         ..default()
     });
-    commands.spawn(MaterialMesh2dBundle {
-        mesh: mesh_handle.clone().into(),
-        material: materials.add(ColorMaterial {
+    commands.spawn(SpriteBundle {
+        texture: texture_handle.clone(),
+        sprite: Sprite {
             color: GREEN.with_alpha(0.7).into(),
-            alpha_mode: AlphaMode2d::Blend,
-            texture: Some(texture_handle),
-        }),
+            ..default()
+        },
         transform: Transform::from_xyz(400.0, 0.0, -1.0),
         ..default()
     });

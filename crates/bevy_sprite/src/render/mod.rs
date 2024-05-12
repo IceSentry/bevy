@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::{
     texture_atlas::{TextureAtlas, TextureAtlasLayout},
-    ComputedTextureSlices, Sprite, WithSprite, SPRITE_SHADER_HANDLE,
+    ComputedTextureSlices, Sprite, WithMesh2d, WithSprite, SPRITE_SHADER_HANDLE,
 };
 use bevy_asset::{AssetEvent, AssetId, Assets, Handle};
 use bevy_color::LinearRgba;
@@ -125,6 +125,7 @@ bitflags::bitflags! {
         const HDR                               = 1 << 0;
         const TONEMAP_IN_SHADER                 = 1 << 1;
         const DEBAND_DITHER                     = 1 << 2;
+        const USE_DEPTH_BUFFER                  = 1 << 3;
         const MSAA_RESERVED_BITS                = Self::MSAA_MASK_BITS << Self::MSAA_SHIFT_BITS;
         const TONEMAP_METHOD_RESERVED_BITS      = Self::TONEMAP_METHOD_MASK_BITS << Self::TONEMAP_METHOD_SHIFT_BITS;
         const TONEMAP_METHOD_NONE               = 0 << Self::TONEMAP_METHOD_SHIFT_BITS;
@@ -274,22 +275,26 @@ impl SpecializedRenderPipeline for SpritePipeline {
             // Sprites are always alpha blended so they never need to write to depth.
             // They just need to read it in case an opaque mesh2d
             // that wrote to depth is present.
-            depth_stencil: Some(DepthStencilState {
-                format: CORE_2D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
-                stencil: StencilState {
-                    front: StencilFaceState::IGNORE,
-                    back: StencilFaceState::IGNORE,
-                    read_mask: 0,
-                    write_mask: 0,
-                },
-                bias: DepthBiasState {
-                    constant: 0,
-                    slope_scale: 0.0,
-                    clamp: 0.0,
-                },
-            }),
+            depth_stencil: if key.contains(SpritePipelineKey::USE_DEPTH_BUFFER) {
+                Some(DepthStencilState {
+                    format: CORE_2D_DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: CompareFunction::GreaterEqual,
+                    stencil: StencilState {
+                        front: StencilFaceState::IGNORE,
+                        back: StencilFaceState::IGNORE,
+                        read_mask: 0,
+                        write_mask: 0,
+                    },
+                    bias: DepthBiasState {
+                        constant: 0,
+                        slope_scale: 0.0,
+                        clamp: 0.0,
+                    },
+                })
+            } else {
+                None
+            },
             multisample: MultisampleState {
                 count: key.msaa_samples(),
                 mask: !0,
@@ -503,6 +508,11 @@ pub fn queue_sprites(
             }
         }
 
+        // Mesh2d needs a depth buffer to render correctly and sprites need to use that depth buffer too
+        if visible_entities.iter::<WithMesh2d>().next().is_some() {
+            view_key |= SpritePipelineKey::USE_DEPTH_BUFFER;
+        }
+
         let pipeline = pipelines.specialize(&pipeline_cache, &sprite_pipeline, view_key);
 
         view_entities.clear();
@@ -527,6 +537,7 @@ pub fn queue_sprites(
             let sort_key = FloatOrd(extracted_sprite.transform.translation().z);
 
             // Add the item to the render phase
+            // Sprites are always alpha blended so we need to use the transparent phase
             transparent_phase.add(Transparent2d {
                 draw_function: draw_sprite_function,
                 pipeline,

@@ -12,12 +12,15 @@ use bevy_render::{
 #[cfg(feature = "trace")]
 use bevy_utils::tracing::info_span;
 
+use super::Opaque2d;
+
 #[derive(Default)]
 pub struct MainTransparentPass2dNode {}
 
 impl ViewNode for MainTransparentPass2dNode {
     type ViewQuery = (
         &'static ExtractedCamera,
+        &'static SortedRenderPhase<Opaque2d>,
         &'static SortedRenderPhase<Transparent2d>,
         &'static ViewTarget,
         &'static ViewDepthTexture,
@@ -27,7 +30,10 @@ impl ViewNode for MainTransparentPass2dNode {
         &self,
         graph: &mut RenderGraphContext,
         render_context: &mut RenderContext<'w>,
-        (camera, transparent_phase, target, depth): bevy_ecs::query::QueryItem<'w, Self::ViewQuery>,
+        (camera, opaque_phase, transparent_phase, target, depth): bevy_ecs::query::QueryItem<
+            'w,
+            Self::ViewQuery,
+        >,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
         let view_entity = graph.view_entity();
@@ -47,7 +53,14 @@ impl ViewNode for MainTransparentPass2dNode {
                 // so that wgpu does not clear the depth buffer.
                 // As the opaque and alpha mask passes run first, opaque meshes can occlude
                 // transparent ones.
-                depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+                //
+                // If a view only has sprites it doesn't need a depth buffer because
+                // sprites never use the opaque phase.
+                depth_stencil_attachment: if !opaque_phase.items.is_empty() {
+                    Some(depth.get_attachment(StoreOp::Store))
+                } else {
+                    None
+                },
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
