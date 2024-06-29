@@ -1,4 +1,4 @@
-use bevy_app::{Last, Plugin, Startup};
+use bevy_app::prelude::*;
 use bevy_asset::{load_internal_asset, Handle};
 use bevy_derive::Deref;
 use bevy_ecs::{
@@ -20,7 +20,7 @@ use bevy_render::{
     view::Msaa,
     Render, RenderApp, RenderSet,
 };
-use bevy_utils::tracing::warn;
+use bevy_utils::warn_once;
 use node::{OitNode, OitPass};
 use resolve::OitResolvePlugin;
 
@@ -36,6 +36,7 @@ pub const OIT_DRAW_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(404252
 
 #[derive(Component, Clone, Copy, ExtractComponent)]
 pub struct OrderIndependentTransparencySettings {
+    // TODO actually send that value to the shader
     layer_count: u8,
 }
 
@@ -59,7 +60,7 @@ impl Plugin for OrderIndependentTransparencyPlugin {
             ExtractComponentPlugin::<OrderIndependentTransparencySettings>::default(),
             OitResolvePlugin,
         ))
-        .add_systems(Startup, check_msaa)
+        .add_systems(Update, check_msaa)
         .add_systems(Last, configure_depth_texture_usages);
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -115,7 +116,6 @@ impl FromWorld for OitBuffers {
 // WARN This should only happen for cameras with the [`OrderIndependentTransparencySettings`]
 // but when multiple cameras are present on the same window
 // bevy reuses the same depth texture so we need to set this on all cameras.
-// TODO do the same for 2d cameras once they have a depth texture
 fn configure_depth_texture_usages(mut new_cameras: Query<&mut Camera3d, Added<Camera3d>>) {
     for mut camera in &mut new_cameras {
         let mut usages = TextureUsages::from(camera.depth_texture_usages);
@@ -124,11 +124,10 @@ fn configure_depth_texture_usages(mut new_cameras: Query<&mut Camera3d, Added<Ca
     }
 }
 
-// TODO check if any cameras has the OIT component
-fn check_msaa(msaa: Res<Msaa>) {
-    if msaa.samples() > 1 {
-        warn!(
-            "MSAA should be disabled when using the OrderIndependentTransparencyPlugin. \
+fn check_msaa(msaa: Res<Msaa>, cameras: Query<(), With<OrderIndependentTransparencySettings>>) {
+    if !cameras.is_empty() && msaa.samples() > 1 {
+        warn_once!(
+            "MSAA should be disabled when using Order Independent Transparency. \
             It will cause some rendering issues on some platform. Consider using another AA method."
         );
     }

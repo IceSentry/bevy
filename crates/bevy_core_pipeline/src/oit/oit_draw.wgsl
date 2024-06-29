@@ -7,7 +7,7 @@ const layer_count: i32 = 8;
 
 #ifdef OIT_ENABLED
 // Add the fragment to the oit buffer
-fn oit_draw(position: vec4f, color: vec4f) -> vec4f {
+fn oit_draw(position: vec4f, color: vec4f) {
     // get the index of the current fragment relative to the screen size
     let screen_index = i32(floor(position.x) + floor(position.y) * view.viewport.z);
     // get the size of the buffer.
@@ -22,7 +22,7 @@ fn oit_draw(position: vec4f, color: vec4f) -> vec4f {
         // accidentally increase the index above the maximum value
         atomicStore(&oit_layer_ids[screen_index], layer_count);
         // TODO consider discard instead
-        return vec4(0.0);
+        discard;
     }
 
     // get the layer_index from the screen
@@ -32,6 +32,6 @@ fn oit_draw(position: vec4f, color: vec4f) -> vec4f {
     let packed_color = pack4x8unorm(color);
     let depth = bitcast<u32>(position.z);
     oit_layers[layer_index] = vec2(packed_color, depth);
-    return vec4(0.0);
+    discard;
 }
 #endif // OIT_ENABLED

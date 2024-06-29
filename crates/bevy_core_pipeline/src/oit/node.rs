@@ -2,13 +2,13 @@ use bevy_ecs::{prelude::*, query::QueryItem};
 use bevy_render::{
     camera::ExtractedCamera,
     render_graph::{NodeRunError, RenderGraphContext, RenderLabel, ViewNode},
-    render_resource::{PipelineCache, RenderPassDescriptor},
+    render_resource::{BindGroupEntries, PipelineCache, RenderPassDescriptor},
     renderer::RenderContext,
-    view::{ViewTarget, ViewUniformOffset},
+    view::{ViewDepthTexture, ViewTarget, ViewUniformOffset},
 };
 
 use super::{
-    resolve::{OitResolvePipelineId, OitResolveViewBindGroup},
+    resolve::{OitResolvePipeline, OitResolvePipelineId, OitResolveViewBindGroup},
     OitLayersBindGroup,
 };
 
@@ -24,16 +24,23 @@ impl ViewNode for OitNode {
         &'static ViewTarget,
         &'static ViewUniformOffset,
         &'static OitResolvePipelineId,
+        &'static ViewDepthTexture,
     );
 
     fn run(
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (camera, view_target, view_uniform, oit_resolve_pipeline_id): QueryItem<Self::ViewQuery>,
+        (camera, view_target, view_uniform, oit_resolve_pipeline_id, depth): QueryItem<
+            Self::ViewQuery,
+        >,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let Some(oit_layers_bind_group) = world.get_resource::<OitLayersBindGroup>() else {
+            return Ok(());
+        };
+
+        let Some(resolve_pipeline) = world.get_resource::<OitResolvePipeline>() else {
             return Ok(());
         };
 
@@ -46,6 +53,12 @@ impl ViewNode for OitNode {
             else {
                 return Ok(());
             };
+
+            let depth_bind_group = render_context.render_device().create_bind_group(
+                "oit_resolve_depth_bind_group",
+                &resolve_pipeline.oit_depth_bind_group_layout,
+                &BindGroupEntries::single(depth.view()),
+            );
 
             let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("oit_resolve_pass"),
@@ -62,6 +75,8 @@ impl ViewNode for OitNode {
             render_pass.set_render_pipeline(pipeline);
             render_pass.set_bind_group(0, view_bind_group, &[view_uniform.offset]);
             render_pass.set_bind_group(1, oit_layers_bind_group, &[]);
+            render_pass.set_bind_group(2, &depth_bind_group, &[]);
+
             render_pass.draw(0..3, 0..1);
         }
 

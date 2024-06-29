@@ -11,17 +11,20 @@ fn main() {
     App::new()
         .insert_resource(Msaa::Off)
         .add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup)
+        .add_systems(
+            Startup,
+            (
+                setup,
+                // spawn_spheres,
+                _spawn_occlusion_test,
+            ),
+        )
         .add_systems(Update, toggle_oit)
         .run();
 }
 
 /// set up a simple 3D scene
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup(mut commands: Commands) {
     // camera
     commands
         .spawn(Camera3dBundle {
@@ -39,6 +42,39 @@ fn setup(
         ..default()
     });
 
+    commands.spawn(TextBundle::from_section(
+        "Oit Enabled",
+        TextStyle::default(),
+    ));
+}
+
+fn toggle_oit(
+    mut commands: Commands,
+    mut text: Query<&mut Text>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    q: Query<(Entity, Has<OrderIndependentTransparencySettings>), With<Camera3d>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyT) {
+        let (e, has_oit) = q.single();
+        text.single_mut().sections[0].value = if has_oit {
+            commands
+                .entity(e)
+                .remove::<OrderIndependentTransparencySettings>();
+            "OIT disabled".to_string()
+        } else {
+            commands
+                .entity(e)
+                .insert(OrderIndependentTransparencySettings::default());
+            "OIT enabled".to_string()
+        };
+    }
+}
+
+fn spawn_spheres(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     let pos_a = Vec3::new(-1.0, 0.75, 0.0);
     let pos_b = Vec3::new(0.0, -0.75, 0.0);
     let pos_c = Vec3::new(1.0, 0.75, 0.0);
@@ -79,31 +115,70 @@ fn setup(
         transform: Transform::from_translation(pos_c + offset),
         ..default()
     });
-
-    commands.spawn(TextBundle::from_section(
-        "Oit Enabled",
-        TextStyle::default(),
-    ));
 }
 
-fn toggle_oit(
+fn _spawn_occlusion_test(
     mut commands: Commands,
-    mut text: Query<&mut Text>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    q: Query<(Entity, Has<OrderIndependentTransparencySettings>), With<Camera3d>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::KeyT) {
-        let (e, has_oit) = q.single();
-        text.single_mut().sections[0].value = if has_oit {
-            commands
-                .entity(e)
-                .remove::<OrderIndependentTransparencySettings>();
-            "OIT disabled".to_string()
-        } else {
-            commands
-                .entity(e)
-                .insert(OrderIndependentTransparencySettings::default());
-            "OIT enabled".to_string()
-        };
-    }
+    let sphere_handle = meshes.add(Sphere::new(1.0).mesh());
+    let cube_handle = meshes.add(Cuboid::from_size(Vec3::ONE).mesh());
+    let cube_material = materials.add(Color::srgb(0.8, 0.7, 0.6));
+
+    // front
+    let x = -2.5;
+    commands.spawn(PbrBundle {
+        mesh: cube_handle.clone(),
+        material: cube_material.clone(),
+        transform: Transform::from_xyz(x, 0.0, 2.0),
+        ..default()
+    });
+    commands.spawn(PbrBundle {
+        mesh: sphere_handle.clone(),
+        material: materials.add(StandardMaterial {
+            base_color: RED.with_alpha(0.5).into(),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
+        transform: Transform::from_xyz(x, 0., 0.),
+        ..default()
+    });
+
+    // intersection
+    commands.spawn(PbrBundle {
+        mesh: cube_handle.clone(),
+        material: cube_material.clone(),
+        transform: Transform::from_xyz(0.0, 0.0, 1.0),
+        ..default()
+    });
+    commands.spawn(PbrBundle {
+        mesh: sphere_handle.clone(),
+        material: materials.add(StandardMaterial {
+            base_color: RED.with_alpha(0.5).into(),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
+        transform: Transform::from_xyz(0., 0., 0.),
+        ..default()
+    });
+
+    // back
+    let x = 2.5;
+    commands.spawn(PbrBundle {
+        mesh: cube_handle.clone(),
+        material: cube_material.clone(),
+        transform: Transform::from_xyz(x, 0.0, -2.0),
+        ..default()
+    });
+    commands.spawn(PbrBundle {
+        mesh: sphere_handle.clone(),
+        material: materials.add(StandardMaterial {
+            base_color: RED.with_alpha(0.5).into(),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
+        transform: Transform::from_xyz(x, 0., 0.),
+        ..default()
+    });
 }

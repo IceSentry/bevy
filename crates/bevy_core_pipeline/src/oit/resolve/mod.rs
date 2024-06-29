@@ -4,7 +4,7 @@ use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_render::{
     render_resource::{
-        binding_types::{storage_buffer_sized, uniform_buffer},
+        binding_types::{storage_buffer_sized, texture_depth_2d, uniform_buffer},
         BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, BlendComponent,
         BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState,
         MultisampleState, PipelineCache, PrimitiveState, RenderPipelineDescriptor, Shader,
@@ -65,33 +65,41 @@ pub struct OitResolveViewBindGroup(pub BindGroup);
 pub struct OitResolvePipeline {
     pub view_bind_group_layout: BindGroupLayout,
     pub oit_layers_bind_group_layout: BindGroupLayout,
+    pub oit_depth_bind_group_layout: BindGroupLayout,
 }
 
 impl FromWorld for OitResolvePipeline {
     fn from_world(world: &mut World) -> Self {
-        let view_bind_group_layout = world.resource::<RenderDevice>().create_bind_group_layout(
+        let render_device = world.resource::<RenderDevice>();
+
+        let view_bind_group_layout = render_device.create_bind_group_layout(
             "oit_resolve_view_layout",
             &BindGroupLayoutEntries::single(
                 ShaderStages::FRAGMENT,
                 uniform_buffer::<ViewUniform>(true),
             ),
         );
-        let oit_layers_bind_group_layout =
-            world.resource::<RenderDevice>().create_bind_group_layout(
-                "oit_layers_bind_group_layout",
-                &BindGroupLayoutEntries::sequential(
-                    ShaderStages::FRAGMENT,
-                    (
-                        // layers
-                        storage_buffer_sized(false, None),
-                        // layer ids
-                        storage_buffer_sized(false, None),
-                    ),
+        let oit_layers_bind_group_layout = render_device.create_bind_group_layout(
+            "oit_layers_bind_group_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    // layers
+                    storage_buffer_sized(false, None),
+                    // layer ids
+                    storage_buffer_sized(false, None),
                 ),
-            );
+            ),
+        );
+
+        let oit_depth_bind_group_layout = render_device.create_bind_group_layout(
+            "oit_depth_bind_group_layout",
+            &BindGroupLayoutEntries::single(ShaderStages::FRAGMENT, texture_depth_2d()),
+        );
         OitResolvePipeline {
             view_bind_group_layout,
             oit_layers_bind_group_layout,
+            oit_depth_bind_group_layout,
         }
     }
 }
@@ -109,7 +117,7 @@ pub struct OitResolvePipelineKey {
 pub fn queue_oit_resolve_pipeline(
     mut commands: Commands,
     pipeline_cache: Res<PipelineCache>,
-    render_pipeline: Res<OitResolvePipeline>,
+    resolve_pipeline: Res<OitResolvePipeline>,
     views: Query<(Entity, &ExtractedView), With<OrderIndependentTransparencySettings>>,
     // Store the key with the id to make the clean up logic easier
     // This also means it will always replace the entry if the key changes so nothing to clean up
@@ -129,7 +137,7 @@ pub fn queue_oit_resolve_pipeline(
         }
 
         let desc =
-            specialize_oit_resolve_pipeline(key, &render_pipeline, &oit_layers_bind_group_layout);
+            specialize_oit_resolve_pipeline(key, &resolve_pipeline, &oit_layers_bind_group_layout);
 
         let pipeline_id = pipeline_cache.queue_render_pipeline(desc);
         commands.entity(e).insert(OitResolvePipelineId(pipeline_id));
@@ -147,7 +155,7 @@ pub fn queue_oit_resolve_pipeline(
 
 fn specialize_oit_resolve_pipeline(
     key: OitResolvePipelineKey,
-    render_pipeline: &OitResolvePipeline,
+    resolve_pipeline: &OitResolvePipeline,
     oit_layers_bind_group_layout: &OitLayersBindGroupLayout,
 ) -> RenderPipelineDescriptor {
     let format = if key.hdr {
@@ -159,8 +167,9 @@ fn specialize_oit_resolve_pipeline(
     RenderPipelineDescriptor {
         label: Some("oit_resolve_pipeline".into()),
         layout: vec![
-            render_pipeline.view_bind_group_layout.clone(),
+            resolve_pipeline.view_bind_group_layout.clone(),
             oit_layers_bind_group_layout.0.clone(),
+            resolve_pipeline.oit_depth_bind_group_layout.clone(),
         ],
         fragment: Some(FragmentState {
             entry_point: "fragment".into(),
@@ -192,7 +201,7 @@ pub fn prepare_oit_resolve_bind_group(
 ) {
     if let Some(binding) = view_uniforms.uniforms.binding() {
         let bind_group = render_device.create_bind_group(
-            "oit_resolve_params_bind_group",
+            "oit_resolve_view_bind_group",
             &resolve_pipeline.view_bind_group_layout,
             &BindGroupEntries::single(binding.clone()),
         );

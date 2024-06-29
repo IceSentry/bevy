@@ -1,4 +1,5 @@
 #import bevy_pbr::{
+    pbr_types,
     pbr_functions::alpha_discard,
     pbr_fragment::pbr_input_from_standard_material,
 }
@@ -70,7 +71,14 @@ fn fragment(
 #endif
 
 #ifdef OIT_ENABLED
-    out.color = oit_draw(in.position, out.color);
+
+    let alpha_mode = pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    if alpha_mode != pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_OPAQUE {
+        // This will always return 0.0. The fragments will only be drawn duing the oit resolve pass.
+        // We don't use discard because it will skip early-z.
+        oit_draw(in.position, out.color);
+    }
+
 #endif // OIT_ENABLED
 
     return out;

@@ -10,7 +10,7 @@ use bevy_core_pipeline::{
         AlphaMask3d, Camera3d, Opaque3d, Opaque3dBinKey, ScreenSpaceTransmissionQuality,
         Transmissive3d, Transparent3d,
     },
-    oit::{oit_phase::OrderIndependentTransparent, OrderIndependentTransparencySettings},
+    oit::OrderIndependentTransparencySettings,
     prepass::{
         DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass, OpaqueNoLightmap3dBinKey,
     },
@@ -263,7 +263,6 @@ where
                 .add_render_command::<Transparent3d, DrawMaterial<M>>()
                 .add_render_command::<Opaque3d, DrawMaterial<M>>()
                 .add_render_command::<AlphaMask3d, DrawMaterial<M>>()
-                .add_render_command::<OrderIndependentTransparent, DrawMaterial<M>>()
                 .init_resource::<SpecializedMeshPipelines<MaterialPipeline<M>>>()
                 .add_systems(
                     Render,

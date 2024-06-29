@@ -1671,10 +1671,10 @@ impl SpecializedMeshPipeline for MeshPipeline {
         let (label, blend, depth_write_enabled);
         let pass = key.intersection(MeshPipelineKey::BLEND_RESERVED_BITS);
         let (mut is_opaque, mut alpha_to_coverage_enabled) = (false, false);
-        if key.contains(MeshPipelineKey::OIT_ENABLED) {
+        if key.contains(MeshPipelineKey::OIT_ENABLED) && pass == MeshPipelineKey::BLEND_ALPHA {
             label = "oit_mesh_pipeline".into();
-            // TODO For tail blending this would need to have alpha blending enabled
-            blend = Some(BlendState::ALPHA_BLENDING);
+            // TODO tail blending would need alpha blending
+            blend = None;
             shader_defs.push("OIT_ENABLED".into());
             // TODO it should be possible to use this to combine MSAA and OIT
             // alpha_to_coverage_enabled = true;

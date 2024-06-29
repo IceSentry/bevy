@@ -504,8 +504,6 @@ pub fn prepare_mesh_view_bind_groups(
         Some(light_probes_binding),
         Some(visibility_ranges_buffer),
         Some(ssr_binding),
-        Some(oit_layers_binding),
-        Some(oit_layer_ids_binding),
     ) = (
         view_uniforms.uniforms.binding(),
         light_meta.view_gpu_lights.binding(),
@@ -515,8 +513,6 @@ pub fn prepare_mesh_view_bind_groups(
         light_probes_buffer.binding(),
         visibility_ranges.buffer().buffer(),
         ssr_buffer.binding(),
-        oit_buffers.layers.binding(),
-        oit_buffers.layer_ids.binding(),
     ) {
         for (
             entity,
@@ -661,10 +657,15 @@ pub fn prepare_mesh_view_bind_groups(
                 entries.extend_with_indices(((26, transmission_view), (27, transmission_sampler)));
 
             if has_oit {
-                entries = entries.extend_with_indices((
-                    (28, oit_layers_binding.clone()),
-                    (29, oit_layer_ids_binding.clone()),
-                ));
+                if let (Some(oit_layers_binding), Some(oit_layer_ids_binding)) = (
+                    oit_buffers.layers.binding(),
+                    oit_buffers.layer_ids.binding(),
+                ) {
+                    entries = entries.extend_with_indices((
+                        (28, oit_layers_binding.clone()),
+                        (29, oit_layer_ids_binding.clone()),
+                    ));
+                }
             }
 
             commands.entity(entity).insert(MeshViewBindGroup {
