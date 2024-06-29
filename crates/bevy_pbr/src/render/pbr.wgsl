@@ -21,6 +21,10 @@
 #import bevy_pbr::meshlet_visibility_buffer_resolve::resolve_vertex_output
 #endif
 
+#ifdef OIT_ENABLED
+#import bevy_core_pipeline::oit::oit_draw
+#endif
+
 @fragment
 fn fragment(
 #ifdef MESHLET_MESH_MATERIAL_PASS
@@ -64,6 +68,10 @@ fn fragment(
     // note this does not include fullscreen postprocessing effects like bloom.
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 #endif
+
+#ifdef OIT_ENABLED
+    out.color = oit_draw(in.position, out.color);
+#endif // OIT_ENABLED
 
     return out;
 }

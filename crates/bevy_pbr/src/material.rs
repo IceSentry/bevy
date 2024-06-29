@@ -10,6 +10,7 @@ use bevy_core_pipeline::{
         AlphaMask3d, Camera3d, Opaque3d, Opaque3dBinKey, ScreenSpaceTransmissionQuality,
         Transmissive3d, Transparent3d,
     },
+    oit::{oit_phase::OrderIndependentTransparent, OrderIndependentTransparencySettings},
     prepass::{
         DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass, OpaqueNoLightmap3dBinKey,
     },
@@ -262,6 +263,7 @@ where
                 .add_render_command::<Transparent3d, DrawMaterial<M>>()
                 .add_render_command::<Opaque3d, DrawMaterial<M>>()
                 .add_render_command::<AlphaMask3d, DrawMaterial<M>>()
+                .add_render_command::<OrderIndependentTransparent, DrawMaterial<M>>()
                 .init_resource::<SpecializedMeshPipelines<MaterialPipeline<M>>>()
                 .add_systems(
                     Render,
@@ -568,6 +570,7 @@ pub fn queue_material_meshes<M: Material>(
             Has<RenderViewLightProbes<EnvironmentMapLight>>,
             Has<RenderViewLightProbes<IrradianceVolume>>,
         ),
+        Has<OrderIndependentTransparencySettings>,
     )>,
 ) where
     M::Data: PartialEq + Eq + Hash + Clone,
@@ -585,6 +588,7 @@ pub fn queue_material_meshes<M: Material>(
         temporal_jitter,
         projection,
         (has_environment_maps, has_irradiance_volumes),
+        has_oit,
     ) in &mut views
     {
         let (
@@ -636,6 +640,10 @@ pub fn queue_material_meshes<M: Material>(
 
         if has_irradiance_volumes {
             view_key |= MeshPipelineKey::IRRADIANCE_VOLUME;
+        }
+
+        if has_oit {
+            view_key |= MeshPipelineKey::OIT_ENABLED;
         }
 
         if let Some(projection) = projection {
