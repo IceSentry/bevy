@@ -19,12 +19,14 @@ use bevy_utils::HashMap;
 
 use crate::{
     fullscreen_vertex_shader::fullscreen_shader_vertex_state,
-    oit::{OitLayersBindGroupLayout, OrderIndependentTransparencySettings},
+    oit::{OitBuffersBindGroupLayout, OrderIndependentTransparencySettings},
 };
 
-use super::{OitBuffers, OitLayersBindGroup};
+use super::{OitBuffers, OitBuffersBindGroup};
 
 pub const OIT_RESOLVE_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(7698420424769536);
+
+pub mod node;
 
 pub struct OitResolvePlugin;
 impl Plugin for OitResolvePlugin {
@@ -122,7 +124,7 @@ pub fn queue_oit_resolve_pipeline(
     // Store the key with the id to make the clean up logic easier
     // This also means it will always replace the entry if the key changes so nothing to clean up
     mut cached_pipeline_id: Local<HashMap<Entity, (OitResolvePipelineKey, CachedRenderPipelineId)>>,
-    oit_layers_bind_group_layout: Res<OitLayersBindGroupLayout>,
+    oit_layers_bind_group_layout: Res<OitBuffersBindGroupLayout>,
 ) {
     let mut current_view_entities = vec![];
     for (e, view) in &views {
@@ -156,7 +158,7 @@ pub fn queue_oit_resolve_pipeline(
 fn specialize_oit_resolve_pipeline(
     key: OitResolvePipelineKey,
     resolve_pipeline: &OitResolvePipeline,
-    oit_layers_bind_group_layout: &OitLayersBindGroupLayout,
+    oit_layers_bind_group_layout: &OitBuffersBindGroupLayout,
 ) -> RenderPipelineDescriptor {
     let format = if key.hdr {
         ViewTarget::TEXTURE_FORMAT_HDR
@@ -215,6 +217,6 @@ pub fn prepare_oit_resolve_bind_group(
             &resolve_pipeline.oit_layers_bind_group_layout,
             &BindGroupEntries::sequential((layers_binding, layer_ids_binding)),
         );
-        commands.insert_resource(OitLayersBindGroup(bg));
+        commands.insert_resource(OitBuffersBindGroup(bg));
     }
 }

@@ -5,7 +5,6 @@
 // TODO use push constant or a uniform or something for this
 const layer_count: i32 = 8;
 
-#ifdef OIT_ENABLED
 // Add the fragment to the oit buffer
 fn oit_draw(position: vec4f, color: vec4f) {
     // get the index of the current fragment relative to the screen size
@@ -34,4 +33,3 @@ fn oit_draw(position: vec4f, color: vec4f) {
     oit_layers[layer_index] = vec2(packed_color, depth);
     discard;
 }
-#endif // OIT_ENABLED

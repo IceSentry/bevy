@@ -24,7 +24,7 @@
 
 #ifdef OIT_ENABLED
 #import bevy_core_pipeline::oit::oit_draw
-#endif
+#endif // OIT_ENABLED
 
 @fragment
 fn fragment(
@@ -71,14 +71,11 @@ fn fragment(
 #endif
 
 #ifdef OIT_ENABLED
-
     let alpha_mode = pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     if alpha_mode != pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_OPAQUE {
-        // This will always return 0.0. The fragments will only be drawn duing the oit resolve pass.
-        // We don't use discard because it will skip early-z.
+        // This will always discard. The fragments will only be drawn during the oit resolve pass.
         oit_draw(in.position, out.color);
     }
-
 #endif // OIT_ENABLED
 
     return out;

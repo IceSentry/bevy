@@ -1,17 +1,12 @@
 use bevy_app::prelude::*;
 use bevy_asset::{load_internal_asset, Handle};
 use bevy_derive::Deref;
-use bevy_ecs::{
-    prelude::*,
-    query::ROQueryItem,
-    system::{lifetimeless::SRes, SystemParamItem},
-};
+use bevy_ecs::prelude::*;
 use bevy_math::UVec2;
 use bevy_render::{
     camera::ExtractedCamera,
     extract_component::{ExtractComponent, ExtractComponentPlugin},
     render_graph::{RenderGraphApp, ViewNodeRunner},
-    render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
     render_resource::{
         binding_types::storage_buffer_sized, BindGroup, BindGroupLayout, BindGroupLayoutEntries,
         BufferUsages, BufferVec, Shader, ShaderStages, TextureUsages,
@@ -21,15 +16,16 @@ use bevy_render::{
     Render, RenderApp, RenderSet,
 };
 use bevy_utils::warn_once;
-use node::{OitNode, OitPass};
-use resolve::OitResolvePlugin;
+use resolve::{
+    node::{OitResolveNode, OitResolvePass},
+    OitResolvePlugin,
+};
 
 use crate::core_3d::{
     graph::{Core3d, Node3d},
     Camera3d,
 };
 
-pub mod node;
 pub mod resolve;
 
 pub const OIT_DRAW_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(4042527984320512);
@@ -73,8 +69,8 @@ impl Plugin for OrderIndependentTransparencyPlugin {
         );
 
         render_app
-            .add_render_graph_node::<ViewNodeRunner<OitNode>>(Core3d, OitPass)
-            .add_render_graph_edges(Core3d, (Node3d::MainTransparentPass, OitPass));
+            .add_render_graph_node::<ViewNodeRunner<OitResolveNode>>(Core3d, OitResolvePass)
+            .add_render_graph_edges(Core3d, (Node3d::MainTransparentPass, OitResolvePass));
     }
 
     fn finish(&self, app: &mut bevy_app::App) {
@@ -83,7 +79,7 @@ impl Plugin for OrderIndependentTransparencyPlugin {
         };
 
         render_app
-            .init_resource::<OitLayersBindGroupLayout>()
+            .init_resource::<OitBuffersBindGroupLayout>()
             .init_resource::<OitBuffers>();
     }
 }
@@ -134,8 +130,8 @@ fn check_msaa(msaa: Res<Msaa>, cameras: Query<(), With<OrderIndependentTranspare
 }
 
 #[derive(Resource)]
-pub struct OitLayersBindGroupLayout(pub BindGroupLayout);
-impl FromWorld for OitLayersBindGroupLayout {
+pub struct OitBuffersBindGroupLayout(pub BindGroupLayout);
+impl FromWorld for OitBuffersBindGroupLayout {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
         let layout = render_device.create_bind_group_layout(
@@ -155,26 +151,7 @@ impl FromWorld for OitLayersBindGroupLayout {
 }
 
 #[derive(Resource, Deref)]
-pub struct OitLayersBindGroup(pub BindGroup);
-
-pub struct SetOitLayersBindGroup<const I: usize>;
-impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetOitLayersBindGroup<I> {
-    type Param = SRes<OitLayersBindGroup>;
-    type ViewQuery = ();
-    type ItemQuery = ();
-
-    #[inline]
-    fn render<'w>(
-        _item: &P,
-        _view: ROQueryItem<'w, Self::ViewQuery>,
-        _entity: Option<ROQueryItem<'w, Self::ItemQuery>>,
-        bind_group: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        pass.set_bind_group(I, bind_group.into_inner(), &[]);
-        RenderCommandResult::Success
-    }
-}
+pub struct OitBuffersBindGroup(pub BindGroup);
 
 /// This creates the required buffers for each camera
 #[allow(clippy::type_complexity)]

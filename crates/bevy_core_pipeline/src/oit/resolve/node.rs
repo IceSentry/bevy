@@ -8,17 +8,16 @@ use bevy_render::{
 };
 
 use super::{
-    resolve::{OitResolvePipeline, OitResolvePipelineId, OitResolveViewBindGroup},
-    OitLayersBindGroup,
+    OitBuffersBindGroup, OitResolvePipeline, OitResolvePipelineId, OitResolveViewBindGroup,
 };
 
 #[derive(RenderLabel, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct OitPass;
+pub struct OitResolvePass;
 
 #[derive(Default)]
-pub struct OitNode;
+pub struct OitResolveNode;
 
-impl ViewNode for OitNode {
+impl ViewNode for OitResolveNode {
     type ViewQuery = (
         &'static ExtractedCamera,
         &'static ViewTarget,
@@ -36,7 +35,7 @@ impl ViewNode for OitNode {
         >,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        let Some(oit_layers_bind_group) = world.get_resource::<OitLayersBindGroup>() else {
+        let Some(oit_layers_bind_group) = world.get_resource::<OitBuffersBindGroup>() else {
             return Ok(());
         };
 
