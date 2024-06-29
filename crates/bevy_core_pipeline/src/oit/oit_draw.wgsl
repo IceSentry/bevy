@@ -5,8 +5,10 @@
 // TODO use push constant or a uniform or something for this
 const layer_count: i32 = 8;
 
+// TODO I don't think this def should be necessary here but it doesn't work if I remove it.
+#ifdef OIT_ENABLED
 // Add the fragment to the oit buffer
-fn oit_draw(position: vec4f, color: vec4f) {
+fn oit_draw(position: vec4f, color: vec4f) -> vec4f {
     // get the index of the current fragment relative to the screen size
     let screen_index = i32(floor(position.x) + floor(position.y) * view.viewport.z);
     // get the size of the buffer.
@@ -20,7 +22,7 @@ fn oit_draw(position: vec4f, color: vec4f) {
         // force to store the layer_count to make sure we don't
         // accidentally increase the index above the maximum value
         atomicStore(&oit_layer_ids[screen_index], layer_count);
-        // TODO consider discard instead
+        // TODO for tail blending we should return the color here
         discard;
     }
 
@@ -33,3 +35,4 @@ fn oit_draw(position: vec4f, color: vec4f) {
     oit_layers[layer_index] = vec2(packed_color, depth);
     discard;
 }
+#endif // OIT_ENABLED
