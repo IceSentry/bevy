@@ -55,6 +55,24 @@ fn vertex(in: VertexInput) -> VertexOutput {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color * textureSample(sprite_texture, sprite_sampler, in.uv);
 
+    // TODO flags
+    let alpha_mode = material.flags & COLOR_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    if alpha_mode == COLOR_MATERIAL_FLAGS_ALPHA_MODE_OPAQUE {
+        // NOTE: If rendering as opaque, alpha should be ignored so set to 1.0
+        color.a = 1.0;
+    }
+#ifdef MAY_DISCARD
+    else if alpha_mode == COLOR_MATERIAL_FLAGS_ALPHA_MODE_MASK {
+       if color.a >= material.alpha_cutoff {
+            // NOTE: If rendering as masked alpha and >= the cutoff, render as fully opaque
+            color.a = 1.0;
+        } else {
+            // NOTE: output_color.a < in.material.alpha_cutoff should not be rendered
+            discard;
+        }
+    }
+#endif // MAY_DISCARD
+
 #ifdef TONEMAP_IN_SHADER
     color = tonemapping::tone_mapping(color, view.color_grading);
 #endif

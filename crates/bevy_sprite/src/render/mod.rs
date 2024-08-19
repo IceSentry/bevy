@@ -2,12 +2,12 @@ use std::ops::Range;
 
 use crate::{
     texture_atlas::{TextureAtlas, TextureAtlasLayout},
-    ComputedTextureSlices, Sprite, WithSprite, SPRITE_SHADER_HANDLE,
+    AlphaMode2d, ComputedTextureSlices, Sprite, WithSprite, SPRITE_SHADER_HANDLE,
 };
 use bevy_asset::{AssetEvent, AssetId, Assets, Handle};
 use bevy_color::{ColorToComponents, LinearRgba};
 use bevy_core_pipeline::{
-    core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT},
+    core_2d::{AlphaMask2d, Opaque2d, Transparent2d, CORE_2D_DEPTH_FORMAT},
     tonemapping::{
         get_lut_bind_group_layout_entries, get_lut_bindings, DebandDither, Tonemapping,
         TonemappingLuts,
@@ -23,7 +23,7 @@ use bevy_render::{
     render_asset::RenderAssets,
     render_phase::{
         DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
-        SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+        SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
     },
     render_resource::{
         binding_types::{sampler, texture_2d, uniform_buffer},
@@ -340,6 +340,7 @@ pub struct ExtractedSprite {
     /// For cases where additional [`ExtractedSprites`] are created during extraction, this stores the
     /// entity that caused that creation for use in determining visibility.
     pub original_entity: Option<Entity>,
+    pub alpha_mode: AlphaMode2d,
 }
 
 #[derive(Resource, Default)]
@@ -421,6 +422,7 @@ pub fn extract_sprites(
                     image_handle_id: handle.id(),
                     anchor: sprite.anchor.as_vec(),
                     original_entity: None,
+                    alpha_mode: AlphaMode2d::Opaque,
                 },
             );
         }
@@ -492,6 +494,8 @@ pub fn queue_sprites(
     pipeline_cache: Res<PipelineCache>,
     extracted_sprites: Res<ExtractedSprites>,
     mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
+    mut opaque_render_phases: ResMut<ViewBinnedRenderPhases<Opaque2d>>,
+    mut alpha_mask_render_phases: ResMut<ViewBinnedRenderPhases<AlphaMask2d>>,
     mut views: Query<(
         Entity,
         &VisibleEntities,
@@ -505,6 +509,12 @@ pub fn queue_sprites(
 
     for (view_entity, visible_entities, view, msaa, tonemapping, dither) in &mut views {
         let Some(transparent_phase) = transparent_render_phases.get_mut(&view_entity) else {
+            continue;
+        };
+        let Some(_opaque_phase) = opaque_render_phases.get_mut(&view_entity) else {
+            continue;
+        };
+        let Some(_alpha_mask_phase) = alpha_mask_render_phases.get_mut(&view_entity) else {
             continue;
         };
 
@@ -543,9 +553,11 @@ pub fn queue_sprites(
                 .map(|e| e.index() as usize),
         );
 
-        transparent_phase
-            .items
-            .reserve(extracted_sprites.sprites.len());
+        // TODO is it possible to reserve based on alpha mode?
+        // Can we just reserve the same amount for each phase knowing it will most likely be too much?
+        // transparent_phase
+        //     .items
+        //     .reserve(extracted_sprites.sprites.len());
 
         for (entity, extracted_sprite) in extracted_sprites.sprites.iter() {
             let index = extracted_sprite.original_entity.unwrap_or(*entity).index();
@@ -554,19 +566,37 @@ pub fn queue_sprites(
                 continue;
             }
 
-            // These items will be sorted by depth with other phase items
-            let sort_key = FloatOrd(extracted_sprite.transform.translation().z);
+            match extracted_sprite.alpha_mode {
+                AlphaMode2d::Opaque => {
+                    let bin_key = Opaque2dBinKey {
+                        pipeline: pipeline_id,
+                        draw_function: draw_opaque_2d,
+                        asset_id: mesh_instance.mesh_asset_id.into(),
+                        material_bind_group_id: material_2d.get_bind_group_id().0,
+                    };
+                    opaque_phase.add(
+                        bin_key,
+                        *visible_entity,
+                        BinnedRenderPhaseType::mesh(mesh_instance.automatic_batching),
+                    );
+                }
+                AlphaMode2d::Mask(_) => todo!(),
+                AlphaMode2d::Blend => {
+                    // These items will be sorted by depth with other phase items
+                    let sort_key = FloatOrd(extracted_sprite.transform.translation().z);
 
-            // Add the item to the render phase
-            transparent_phase.add(Transparent2d {
-                draw_function: draw_sprite_function,
-                pipeline,
-                entity: *entity,
-                sort_key,
-                // batch_range and dynamic_offset will be calculated in prepare_sprites
-                batch_range: 0..0,
-                extra_index: PhaseItemExtraIndex::NONE,
-            });
+                    // Add the item to the render phase
+                    transparent_phase.add(Transparent2d {
+                        draw_function: draw_sprite_function,
+                        pipeline,
+                        entity: *entity,
+                        sort_key,
+                        // batch_range and dynamic_offset will be calculated in prepare_sprites
+                        batch_range: 0..0,
+                        extra_index: PhaseItemExtraIndex::NONE,
+                    });
+                }
+            }
         }
     }
 }

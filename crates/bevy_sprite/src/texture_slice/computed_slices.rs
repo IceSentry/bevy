@@ -54,6 +54,7 @@ impl ComputedTextureSlices {
                 flip_y,
                 image_handle_id: handle.id(),
                 anchor: Self::redepend_anchor_from_sprite_to_slice(sprite, slice),
+                alpha_mode: crate::AlphaMode2d::Blend,
             }
         })
     }
