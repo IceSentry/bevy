@@ -4,13 +4,13 @@ use bevy::{
     window::WindowResized,
 };
 use bevy_render::camera::Viewport;
-use rand::Rng;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                resolution: Vec2::new(1920.0, 1080.0).into(),
+                //resolution: Vec2::new(1920.0, 1080.0).into(),
                 ..default()
             }),
             ..default()
@@ -35,29 +35,37 @@ fn setup(
     //    MeshMaterial3d(materials.add(Color::WHITE)),
     //    Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
     //));
+
     // light
+    //commands.spawn((
+    //     PointLight {
+    //         shadows_enabled: true,
+    //         ..default()
+    //     },
+    //     Transform::from_xyz(4.0, 8.0, 4.0),
+    // ));
+
     commands.spawn((
-        PointLight {
-            shadows_enabled: true,
+        DirectionalLight {
+            illuminance: 1_500.,
             ..default()
         },
-        Transform::from_xyz(4.0, 8.0, 4.0),
+        Transform::from_xyz(50.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
     commands.spawn((
         SceneRoot(
-            asset_server
-                .load(GltfAssetLabel::Scene(0).from_asset("models/reconstructed_engine.glb")),
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/Buggy_centered.glb")),
         ),
-        //Transform::from_scale(Vec3::splat(0.035)),
-        Transform::from_scale(Vec3::splat(0.85)),
+        Transform::from_scale(Vec3::splat(0.045)),
+        //Transform::from_scale(Vec3::splat(0.85)),
         Rotate,
         ReplaceStandardMaterial,
     ));
 
     let camera_pos =
         Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y);
-    let text = ["OIT enabled", "OIT disabled"];
+    let text = ["Order Independent Transparency", "Alpha Blending"];
     for index in 0..2 {
         let mut camera = commands.spawn((
             Camera3d::default(),
@@ -73,7 +81,7 @@ fn setup(
         ));
         if index == 0 {
             camera.insert(OrderIndependentTransparencySettings {
-                layer_count: 32,
+                layer_count: 64,
                 //alpha_threshold: 0.05,
                 ..default()
             });
@@ -93,7 +101,7 @@ fn setup(
                 parent.spawn((
                     Text::new(text[index]),
                     TextFont {
-                        font_size: 24.0,
+                        font_size: 38.0,
                         ..default()
                     },
                     Node {
@@ -163,7 +171,7 @@ fn replace_scene_materials(
             commands.entity(entity).remove::<ReplaceStandardMaterial>();
         }
         let handles = handles.iter_many(scene_manager.iter_instance_entities(**instance));
-        let mut rng = rand::thread_rng();
+        let mut rng = StdRng::seed_from_u64(2);
         for (_entity, material_handle) in handles {
             let Some(material) = pbr_materials.get_mut(material_handle) else {
                 continue;
@@ -172,6 +180,7 @@ fn replace_scene_materials(
             //material.base_color.set_alpha(0.25);
             material.base_color = Color::srgba(rng.gen(), rng.gen(), rng.gen(), 0.25);
             material.alpha_mode = AlphaMode::Blend;
+            //material.unlit = true;
         }
     }
 }
