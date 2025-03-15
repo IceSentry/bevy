@@ -14,11 +14,17 @@ use motion_blur::MotionBlurPlugin;
 pub mod bloom;
 pub mod dof;
 pub mod motion_blur;
+pub mod post_process;
 
 #[derive(Default)]
 pub struct PostProcessingPlugin;
 impl Plugin for PostProcessingPlugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_plugins((BloomPlugin, MotionBlurPlugin, DepthOfFieldPlugin));
+        app.add_plugins((
+            BloomPlugin,
+            MotionBlurPlugin,
+            DepthOfFieldPlugin,
+            post_process::PostProcessingPlugin,
+        ));
     }
 }

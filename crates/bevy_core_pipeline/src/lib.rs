@@ -15,7 +15,6 @@ pub mod experimental;
 pub mod fullscreen_vertex_shader;
 pub mod msaa_writeback;
 pub mod oit;
-pub mod post_process;
 pub mod prepass;
 mod skybox;
 pub mod tonemapping;
@@ -39,7 +38,6 @@ use crate::{
     experimental::mip_generation::MipGenerationPlugin,
     fullscreen_vertex_shader::FULLSCREEN_SHADER_HANDLE,
     msaa_writeback::MsaaWritebackPlugin,
-    post_process::PostProcessingPlugin,
     prepass::{DeferredPrepass, DepthPrepass, MotionVectorPrepass, NormalPrepass},
     tonemapping::TonemappingPlugin,
     upscaling::UpscalingPlugin,
@@ -71,7 +69,6 @@ impl Plugin for CorePipelinePlugin {
                 MsaaWritebackPlugin,
                 TonemappingPlugin,
                 UpscalingPlugin,
-                PostProcessingPlugin,
                 OrderIndependentTransparencyPlugin,
                 MipGenerationPlugin,
             ));
