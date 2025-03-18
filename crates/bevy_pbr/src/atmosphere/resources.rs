@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use bevy_core_pipeline::{
     core_3d::Camera3d, fullscreen_vertex_shader::fullscreen_shader_vertex_state,
 };
@@ -18,6 +20,7 @@ use bevy_render::{
     texture::{CachedTexture, TextureCache},
     view::{ExtractedView, Msaa, ViewDepthTexture, ViewUniform, ViewUniforms},
 };
+use bytemuck::NoUninit;
 
 use crate::{GpuLights, LightMeta};
 
@@ -87,7 +90,13 @@ impl FromWorld for AtmosphereBindGroupLayouts {
                 (
                     (0, uniform_buffer::<Atmosphere>(true)),
                     (1, uniform_buffer::<AtmosphereSettings>(true)),
-                    (2, uniform_buffer::<AtmosphereTransform>(true)),
+                    (
+                        2,
+                        uniform_buffer_sized(
+                            true,
+                            NonZero::new(size_of::<AtmosphereTransform>() as u64),
+                        ),
+                    ),
                     (3, uniform_buffer::<ViewUniform>(true)),
                     (4, uniform_buffer::<GpuLights>(true)),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
@@ -149,7 +158,13 @@ impl FromWorld for RenderSkyBindGroupLayouts {
                 (
                     (0, uniform_buffer::<Atmosphere>(true)),
                     (1, uniform_buffer::<AtmosphereSettings>(true)),
-                    (2, uniform_buffer::<AtmosphereTransform>(true)),
+                    (
+                        2,
+                        uniform_buffer_sized(
+                            true,
+                            NonZero::new(size_of::<AtmosphereTransform>() as u64),
+                        ),
+                    ),
                     (3, uniform_buffer::<ViewUniform>(true)),
                     (4, uniform_buffer::<GpuLights>(true)),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
@@ -178,7 +193,13 @@ impl FromWorld for RenderSkyBindGroupLayouts {
                 (
                     (0, uniform_buffer::<Atmosphere>(true)),
                     (1, uniform_buffer::<AtmosphereSettings>(true)),
-                    (2, uniform_buffer::<AtmosphereTransform>(true)),
+                    (
+                        2,
+                        uniform_buffer_sized(
+                            true,
+                            NonZero::new(size_of::<AtmosphereTransform>() as u64),
+                        ),
+                    ),
                     (3, uniform_buffer::<ViewUniform>(true)),
                     (4, uniform_buffer::<GpuLights>(true)),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
@@ -501,19 +522,28 @@ pub(super) fn prepare_atmosphere_textures(
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct AtmosphereTransforms {
-    uniforms: DynamicUniformBuffer<AtmosphereTransform>,
+    uniforms: AlignedRawBufferVec<AtmosphereTransform>,
+}
+impl FromWorld for AtmosphereTransforms {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        Self {
+            uniforms: AlignedRawBufferVec::new(BufferUsages::UNIFORM, render_device),
+        }
+    }
 }
 
 impl AtmosphereTransforms {
     #[inline]
-    pub fn uniforms(&self) -> &DynamicUniformBuffer<AtmosphereTransform> {
+    pub fn uniforms(&self) -> &AlignedRawBufferVec<AtmosphereTransform> {
         &self.uniforms
     }
 }
 
-#[derive(ShaderType)]
+#[derive(NoUninit, Clone, Copy)]
+#[repr(C)]
 pub struct AtmosphereTransform {
     world_from_atmosphere: Mat4,
     atmosphere_from_world: Mat4,
@@ -539,13 +569,8 @@ pub(super) fn prepare_atmosphere_transforms(
     mut commands: Commands,
 ) {
     let atmo_count = views.iter().len();
-    let Some(mut writer) =
-        atmo_uniforms
-            .uniforms
-            .get_writer(atmo_count, &render_device, &render_queue)
-    else {
-        return;
-    };
+    atmo_uniforms.uniforms.clear();
+    atmo_uniforms.uniforms.reserve(atmo_count, &render_device);
 
     for (entity, view) in &views {
         let world_from_view = view.world_from_view.compute_matrix();
@@ -566,13 +591,17 @@ pub(super) fn prepare_atmosphere_transforms(
 
         let atmosphere_from_world = world_from_atmosphere.inverse();
 
+        let offset = atmo_uniforms.uniforms.push(AtmosphereTransform {
+            world_from_atmosphere,
+            atmosphere_from_world,
+        });
         commands.entity(entity).insert(AtmosphereTransformsOffset {
-            index: writer.write(&AtmosphereTransform {
-                world_from_atmosphere,
-                atmosphere_from_world,
-            }),
+            index: offset as u32,
         });
     }
+    atmo_uniforms
+        .uniforms
+        .write_buffer(&render_device, &render_queue);
 }
 
 #[derive(Component)]
