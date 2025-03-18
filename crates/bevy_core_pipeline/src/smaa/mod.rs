@@ -29,6 +29,8 @@
 //! * Compatibility with SSAA and MSAA.
 //!
 //! [SMAA]: https://www.iryoku.com/smaa/
+use std::num::NonZero;
+
 #[cfg(not(feature = "smaa_luts"))]
 use crate::tonemapping::lut_placeholder;
 use crate::{
@@ -61,17 +63,17 @@ use bevy_render::{
         NodeRunError, RenderGraphApp as _, RenderGraphContext, ViewNode, ViewNodeRunner,
     },
     render_resource::{
-        binding_types::{sampler, texture_2d, uniform_buffer},
-        AddressMode, BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries,
-        CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState,
-        DynamicUniformBuffer, Extent3d, FilterMode, FragmentState, LoadOp, MultisampleState,
-        Operations, PipelineCache, PrimitiveState, RenderPassColorAttachment,
-        RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline,
-        RenderPipelineDescriptor, SamplerBindingType, SamplerDescriptor, Shader, ShaderDefVal,
-        ShaderStages, ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines,
-        StencilFaceState, StencilOperation, StencilState, StoreOp, TextureDescriptor,
-        TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-        VertexState,
+        binding_types::{sampler, texture_2d, uniform_buffer, uniform_buffer_sized},
+        AddressMode, AlignedRawBufferVec, BindGroup, BindGroupEntries, BindGroupLayout,
+        BindGroupLayoutEntries, BufferUsages, CachedRenderPipelineId, ColorTargetState,
+        ColorWrites, CompareFunction, DepthStencilState, DynamicUniformBuffer, Extent3d,
+        FilterMode, FragmentState, LoadOp, MultisampleState, Operations, PipelineCache,
+        PrimitiveState, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
+        RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, SamplerBindingType,
+        SamplerDescriptor, Shader, ShaderDefVal, ShaderStages, ShaderType,
+        SpecializedRenderPipeline, SpecializedRenderPipelines, StencilFaceState, StencilOperation,
+        StencilState, StoreOp, TextureDescriptor, TextureDimension, TextureFormat,
+        TextureSampleType, TextureUsages, TextureView, VertexState,
     },
     renderer::{RenderContext, RenderDevice, RenderQueue},
     texture::{CachedTexture, GpuImage, TextureCache},
@@ -79,6 +81,7 @@ use bevy_render::{
     Render, RenderApp, RenderSet,
 };
 use bevy_utils::prelude::default;
+use bytemuck::NoUninit;
 
 /// The handle of the `smaa.wgsl` shader.
 const SMAA_SHADER_HANDLE: Handle<Shader> = weak_handle!("fdd9839f-1ab4-4e0d-88a0-240b67da2ddf");
@@ -199,7 +202,8 @@ pub struct SmaaNode;
 /// from them. These could be computed by the shader itself, but the original
 /// SMAA HLSL code supplied them in a uniform, so we do the same for
 /// consistency.
-#[derive(Clone, Copy, ShaderType)]
+#[derive(Clone, Copy, NoUninit, Default)]
+#[repr(C)]
 pub struct SmaaInfoUniform {
     /// Information about the width and height of the framebuffer.
     ///
@@ -221,8 +225,17 @@ pub struct SmaaInfoUniformOffset(pub u32);
 /// The GPU buffer that holds all [`SmaaInfoUniform`]s for all views.
 ///
 /// This is a resource stored in the render world.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct SmaaInfoUniformBuffer(pub DynamicUniformBuffer<SmaaInfoUniform>);
+#[derive(Resource, Deref, DerefMut)]
+pub struct SmaaInfoUniformBuffer(pub AlignedRawBufferVec<SmaaInfoUniform>);
+impl FromWorld for SmaaInfoUniformBuffer {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        Self(AlignedRawBufferVec::new(
+            BufferUsages::UNIFORM,
+            render_device,
+        ))
+    }
+}
 
 /// A render world component that holds the intermediate textures necessary to
 /// perform SMAA.
@@ -346,7 +359,6 @@ impl Plugin for SmaaPlugin {
 
         render_app
             .init_resource::<SmaaSpecializedRenderPipelines>()
-            .init_resource::<SmaaInfoUniformBuffer>()
             .add_systems(
                 Render,
                 (
@@ -378,7 +390,9 @@ impl Plugin for SmaaPlugin {
 
     fn finish(&self, app: &mut App) {
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.init_resource::<SmaaPipelines>();
+            render_app
+                .init_resource::<SmaaPipelines>()
+                .init_resource::<SmaaInfoUniformBuffer>();
         }
     }
 }
@@ -394,7 +408,7 @@ impl FromWorld for SmaaPipelines {
                 ShaderStages::FRAGMENT,
                 (
                     texture_2d(TextureSampleType::Float { filterable: true }),
-                    uniform_buffer::<SmaaInfoUniform>(true)
+                    uniform_buffer_sized(true, NonZero::new(size_of::<SmaaInfoUniform>() as u64))
                         .visibility(ShaderStages::VERTEX_FRAGMENT),
                 ),
             ),
@@ -666,7 +680,7 @@ fn prepare_smaa_uniforms(
 ) {
     smaa_info_buffer.clear();
     for (entity, view) in &view_targets {
-        let offset = smaa_info_buffer.push(&SmaaInfoUniform {
+        let offset = smaa_info_buffer.push(SmaaInfoUniform {
             rt_metrics: vec4(
                 1.0 / view.viewport.z as f32,
                 1.0 / view.viewport.w as f32,
@@ -676,7 +690,7 @@ fn prepare_smaa_uniforms(
         });
         commands
             .entity(entity)
-            .insert(SmaaInfoUniformOffset(offset));
+            .insert(SmaaInfoUniformOffset(offset as u32));
     }
 
     smaa_info_buffer.write_buffer(&render_device, &render_queue);
@@ -928,7 +942,7 @@ fn perform_edge_detection(
     let postprocess_bind_group = render_context.render_device().create_bind_group(
         None,
         &smaa_pipelines.edge_detection.postprocess_bind_group_layout,
-        &BindGroupEntries::sequential((source, &**smaa_info_uniform_buffer)),
+        &BindGroupEntries::sequential((source, smaa_info_uniform_buffer.binding().unwrap())),
     );
 
     // Create the edge detection pass descriptor.
@@ -983,7 +997,7 @@ fn perform_blending_weight_calculation(
         &smaa_pipelines
             .blending_weight_calculation
             .postprocess_bind_group_layout,
-        &BindGroupEntries::sequential((source, &**smaa_info_uniform_buffer)),
+        &BindGroupEntries::sequential((source, smaa_info_uniform_buffer.binding().unwrap())),
     );
 
     // Create the blending weight calculation pass descriptor.
@@ -1040,7 +1054,7 @@ fn perform_neighborhood_blending(
         &smaa_pipelines
             .neighborhood_blending
             .postprocess_bind_group_layout,
-        &BindGroupEntries::sequential((source, &**smaa_info_uniform_buffer)),
+        &BindGroupEntries::sequential((source, smaa_info_uniform_buffer.binding().unwrap())),
     );
 
     let pass_descriptor = RenderPassDescriptor {
