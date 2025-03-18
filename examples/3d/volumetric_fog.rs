@@ -121,6 +121,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, app_settings: R
         FogVolume::default(),
         Transform::from_scale(Vec3::splat(35.0)),
     ));
+    // Add the fog volume.
+    commands.spawn((
+        FogVolume::default(),
+        Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::splat(42.0)),
+    ));
 
     // Add the help text.
     commands.spawn((

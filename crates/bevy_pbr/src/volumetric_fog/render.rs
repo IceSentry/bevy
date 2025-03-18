@@ -1,6 +1,7 @@
 //! Rendering of fog volumes.
 
 use core::array;
+use std::num::NonZero;
 
 use bevy_asset::{weak_handle, AssetId, Handle};
 use bevy_color::ColorToComponents as _;
@@ -18,7 +19,7 @@ use bevy_ecs::{
     world::{FromWorld, World},
 };
 use bevy_image::{BevyDefault, Image};
-use bevy_math::{vec4, Mat3A, Mat4, Vec3, Vec3A, Vec4, Vec4Swizzles as _};
+use bevy_math::{vec4, Mat3A, Mat4, Vec3, Vec3A, Vec4, Vec4Swizzles as _, VectorSpace};
 use bevy_render::{
     mesh::{
         allocator::MeshAllocator, Mesh, MeshVertexBufferLayoutRef, RenderMesh, RenderMeshBufferInfo,
@@ -27,15 +28,18 @@ use bevy_render::{
     render_graph::{NodeRunError, RenderGraphContext, ViewNode},
     render_resource::{
         binding_types::{
-            sampler, texture_3d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer,
+            sampler, texture_3d, texture_depth_2d, texture_depth_2d_multisampled,
+            uniform_buffer_sized,
         },
-        BindGroupLayout, BindGroupLayoutEntries, BindingResource, BlendComponent, BlendFactor,
-        BlendOperation, BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites,
-        DynamicBindGroupEntries, DynamicUniformBuffer, Face, FragmentState, LoadOp,
-        MultisampleState, Operations, PipelineCache, PrimitiveState, RenderPassColorAttachment,
-        RenderPassDescriptor, RenderPipelineDescriptor, SamplerBindingType, Shader, ShaderStages,
-        ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines, StoreOp, TextureFormat,
-        TextureSampleType, TextureUsages, VertexState,
+        encase::private::AlignmentValue,
+        AlignedRawBufferVec, BindGroupLayout, BindGroupLayoutEntries, BindingResource,
+        BlendComponent, BlendFactor, BlendOperation, BlendState, BufferUsages,
+        CachedRenderPipelineId, ColorTargetState, ColorWrites, DynamicBindGroupEntries, Face,
+        FragmentState, LoadOp, MultisampleState, Operations, PipelineCache, PrimitiveState,
+        RawBufferVec, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+        SamplerBindingType, Shader, ShaderStages, ShaderType, SpecializedRenderPipeline,
+        SpecializedRenderPipelines, StoreOp, TextureFormat, TextureSampleType, TextureUsages,
+        VertexState,
     },
     renderer::{RenderContext, RenderDevice, RenderQueue},
     sync_world::RenderEntity,
@@ -46,6 +50,7 @@ use bevy_render::{
 use bevy_transform::components::GlobalTransform;
 use bevy_utils::prelude::default;
 use bitflags::bitflags;
+use bytemuck::{NoUninit, Pod, Zeroable};
 
 use crate::{
     FogVolume, MeshPipelineViewLayoutKey, MeshPipelineViewLayouts, MeshViewBindGroup,
@@ -161,36 +166,34 @@ pub struct VolumetricFogPipelineKey {
 ///
 /// See the documentation of those structures for more information on these
 /// fields.
-#[derive(ShaderType)]
+#[derive(ShaderType, NoUninit, Clone, Copy)]
+#[repr(C)]
 pub struct VolumetricFogUniform {
     clip_from_local: Mat4,
-
-    /// The transform from world space to 3D density texture UVW space.
     uvw_from_world: Mat4,
-
-    /// View-space plane equations of the far faces of the fog volume cuboid.
-    ///
-    /// The vector takes the form V = (N, -N⋅Q), where N is the normal of the
-    /// plane and Q is any point in it, in view space. The equation of the plane
-    /// for homogeneous point P = (Px, Py, Pz, Pw) is V⋅P = 0.
     far_planes: [Vec4; 3],
 
     fog_color: Vec3,
-    light_tint: Vec3,
-    ambient_color: Vec3,
     ambient_intensity: f32,
+
+    light_tint: Vec3,
     step_count: u32,
 
-    /// The radius of a sphere that bounds the fog volume in view space.
+    ambient_color: Vec3,
     bounding_radius: f32,
 
     absorption: f32,
     scattering: f32,
     density: f32,
-    density_texture_offset: Vec3,
     scattering_asymmetry: f32,
+
+    density_texture_offset: Vec3,
     light_intensity: f32,
+
     jitter_strength: f32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 /// Specifies the offset within the [`VolumetricFogUniformBuffer`] of the
@@ -211,20 +214,28 @@ pub struct ViewFogVolume {
 }
 
 /// The GPU buffer that stores the [`VolumetricFogUniform`] data.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct VolumetricFogUniformBuffer(pub DynamicUniformBuffer<VolumetricFogUniform>);
+#[derive(Resource, Deref, DerefMut)]
+pub struct VolumetricFogUniformBuffer(pub AlignedRawBufferVec<VolumetricFogUniform>);
+impl FromWorld for VolumetricFogUniformBuffer {
+    fn from_world(world: &mut World) -> Self {
+        let device = world.resource::<RenderDevice>();
+        let mut buf = AlignedRawBufferVec::new(BufferUsages::UNIFORM, device);
+        buf.set_label(Some("VolumetricFogUniform"));
+        Self(buf)
+    }
+}
 
 impl FromWorld for VolumetricFogPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
         let mesh_view_layouts = world.resource::<MeshPipelineViewLayouts>();
-
         // Create the bind group layout entries common to all bind group
         // layouts.
         let base_bind_group_layout_entries = &BindGroupLayoutEntries::single(
             ShaderStages::VERTEX_FRAGMENT,
             // `volumetric_fog`
-            uniform_buffer::<VolumetricFogUniform>(true),
+            // TODO min_size
+            uniform_buffer_sized(true, NonZero::new(size_of::<VolumetricFogUniform>() as u64)),
         );
 
         // For every combination of `VolumetricFogBindGroupLayoutKey` bits,
@@ -704,12 +715,8 @@ pub fn prepare_volumetric_fog_uniforms(
     }
 
     let uniform_count = view_targets.iter().len() * local_from_world_matrices.len();
-
-    let Some(mut writer) =
-        volumetric_lighting_uniform_buffer.get_writer(uniform_count, &render_device, &render_queue)
-    else {
-        return;
-    };
+    volumetric_lighting_uniform_buffer.clear();
+    volumetric_lighting_uniform_buffer.reserve(uniform_count, &render_device);
 
     for (view_entity, extracted_view, volumetric_fog) in view_targets.iter() {
         let world_from_view = extracted_view.world_from_view.compute_matrix();
@@ -736,24 +743,29 @@ pub fn prepare_volumetric_fog_uniforms(
             let bounding_radius = (Mat3A::from_mat4(view_from_local) * Vec3A::splat(0.5)).length();
 
             // Write out our uniform.
-            let uniform_buffer_offset = writer.write(&VolumetricFogUniform {
-                clip_from_local: hull_clip_from_local,
-                uvw_from_world: UVW_FROM_LOCAL * *local_from_world,
-                far_planes: get_far_planes(&view_from_local),
-                fog_color: fog_volume.fog_color.to_linear().to_vec3(),
-                light_tint: fog_volume.light_tint.to_linear().to_vec3(),
-                ambient_color: volumetric_fog.ambient_color.to_linear().to_vec3(),
-                ambient_intensity: volumetric_fog.ambient_intensity,
-                step_count: volumetric_fog.step_count,
-                bounding_radius,
-                absorption: fog_volume.absorption,
-                scattering: fog_volume.scattering,
-                density: fog_volume.density_factor,
-                density_texture_offset: fog_volume.density_texture_offset,
-                scattering_asymmetry: fog_volume.scattering_asymmetry,
-                light_intensity: fog_volume.light_intensity,
-                jitter_strength: volumetric_fog.jitter,
-            });
+            let uniform_buffer_offset =
+                volumetric_lighting_uniform_buffer.push(VolumetricFogUniform {
+                    clip_from_local: hull_clip_from_local,
+                    uvw_from_world: UVW_FROM_LOCAL * *local_from_world,
+                    far_planes: get_far_planes(&view_from_local),
+                    fog_color: fog_volume.fog_color.to_linear().to_vec3(),
+                    light_tint: fog_volume.light_tint.to_linear().to_vec3(),
+                    ambient_color: volumetric_fog.ambient_color.to_linear().to_vec3(),
+                    ambient_intensity: volumetric_fog.ambient_intensity,
+                    step_count: volumetric_fog.step_count,
+                    bounding_radius,
+                    absorption: fog_volume.absorption,
+                    scattering: fog_volume.scattering,
+                    density: fog_volume.density_factor,
+                    density_texture_offset: fog_volume.density_texture_offset,
+                    scattering_asymmetry: fog_volume.scattering_asymmetry,
+                    light_intensity: fog_volume.light_intensity,
+                    jitter_strength: volumetric_fog.jitter,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
+                });
+            let uniform_buffer_offset = uniform_buffer_offset as u32;
 
             view_fog_volumes.push(ViewFogVolume {
                 uniform_buffer_offset,
@@ -766,6 +778,7 @@ pub fn prepare_volumetric_fog_uniforms(
             .entity(view_entity)
             .insert(ViewVolumetricFog(view_fog_volumes));
     }
+    volumetric_lighting_uniform_buffer.write_buffer(&render_device, &render_queue);
 }
 
 /// A system that marks all view depth textures as readable in shaders.

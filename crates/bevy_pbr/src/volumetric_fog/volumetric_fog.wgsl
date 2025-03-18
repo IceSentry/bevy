@@ -17,14 +17,14 @@
 #import bevy_pbr::mesh_functions::{get_world_from_local, mesh_position_local_to_clip}
 #import bevy_pbr::mesh_view_bindings::{globals, lights, view, clusterable_objects}
 #import bevy_pbr::mesh_view_types::{
-    DIRECTIONAL_LIGHT_FLAGS_VOLUMETRIC_BIT, 
-    POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT, 
+    DIRECTIONAL_LIGHT_FLAGS_VOLUMETRIC_BIT,
+    POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT,
     POINT_LIGHT_FLAGS_VOLUMETRIC_BIT,
     POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE,
     ClusterableObject
 }
 #import bevy_pbr::shadow_sampling::{
-    sample_shadow_map_hardware, 
+    sample_shadow_map_hardware,
     sample_shadow_cubemap,
     sample_shadow_map,
     SPOT_SHADOW_TEXEL_SIZE
@@ -47,19 +47,28 @@ struct VolumetricFog {
     clip_from_local: mat4x4<f32>,
     uvw_from_world: mat4x4<f32>,
     far_planes: array<vec4<f32>, 3>,
+
     fog_color: vec3<f32>,
-    light_tint: vec3<f32>,
-    ambient_color: vec3<f32>,
     ambient_intensity: f32,
+
+    light_tint: vec3<f32>,
     step_count: u32,
+
+    ambient_color: vec3<f32>,
     bounding_radius: f32,
+
     absorption: f32,
     scattering: f32,
     density_factor: f32,
-    density_texture_offset: vec3<f32>,
     scattering_asymmetry: f32,
+
+    density_texture_offset: vec3<f32>,
     light_intensity: f32,
+
     jitter_strength: f32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(1) @binding(0) var<uniform> volumetric_fog: VolumetricFog;
@@ -371,7 +380,7 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
                 }
                 local_light_attenuation *= spot_attenuation * shadow;
             }
-            
+
             // Calculate absorption (amount of light absorbed by the fog) and
             // out-scattering (amount of light the fog scattered away).
             let sample_attenuation = exp(-step_size_world * density * (absorption + scattering));

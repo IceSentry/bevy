@@ -211,7 +211,6 @@ impl Plugin for VolumetricFogPlugin {
 
         render_app
             .init_resource::<SpecializedRenderPipelines<VolumetricFogPipeline>>()
-            .init_resource::<VolumetricFogUniformBuffer>()
             .add_systems(ExtractSchedule, render::extract_volumetric_fog)
             .add_systems(
                 Render,
@@ -232,6 +231,7 @@ impl Plugin for VolumetricFogPlugin {
 
         render_app
             .init_resource::<VolumetricFogPipeline>()
+            .init_resource::<VolumetricFogUniformBuffer>()
             .add_render_graph_node::<ViewNodeRunner<VolumetricFogNode>>(
                 Core3d,
                 NodePbr::VolumetricFog,
