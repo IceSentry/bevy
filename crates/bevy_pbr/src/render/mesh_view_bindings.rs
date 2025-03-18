@@ -296,7 +296,10 @@ fn layout_entries(
                 uniform_buffer::<GlobalsUniform>(false).visibility(ShaderStages::VERTEX_FRAGMENT),
             ),
             // Fog
-            (12, uniform_buffer::<GpuFog>(true)),
+            (
+                12,
+                uniform_buffer_sized(true, NonZero::new(size_of::<GpuFog>() as u64)),
+            ),
             // Light probes
             (
                 13,

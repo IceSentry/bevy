@@ -5,16 +5,18 @@ use bevy_ecs::prelude::*;
 use bevy_math::{Vec3, Vec4};
 use bevy_render::{
     extract_component::ExtractComponentPlugin,
-    render_resource::{DynamicUniformBuffer, Shader, ShaderType},
+    render_resource::{AlignedRawBufferVec, BufferUsages, Shader},
     renderer::{RenderDevice, RenderQueue},
     view::ExtractedView,
     Render, RenderApp, RenderSet,
 };
+use bytemuck::NoUninit;
 
 use crate::{DistanceFog, FogFalloff};
 
 /// The GPU-side representation of the fog configuration that's sent as a uniform to the shader
-#[derive(Copy, Clone, ShaderType, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, NoUninit)]
+#[repr(C)]
 pub struct GpuFog {
     /// Fog color
     base_color: Vec4,
@@ -40,9 +42,17 @@ const GPU_FOG_MODE_EXPONENTIAL_SQUARED: u32 = 3;
 const GPU_FOG_MODE_ATMOSPHERIC: u32 = 4;
 
 /// Metadata for fog
-#[derive(Default, Resource)]
+#[derive(Resource)]
 pub struct FogMeta {
-    pub gpu_fogs: DynamicUniformBuffer<GpuFog>,
+    pub gpu_fogs: AlignedRawBufferVec<GpuFog>,
+}
+impl FromWorld for FogMeta {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        Self {
+            gpu_fogs: AlignedRawBufferVec::new(BufferUsages::UNIFORM, render_device),
+        }
+    }
 }
 
 /// Prepares fog metadata and writes the fog-related uniform buffers to the GPU
@@ -55,12 +65,9 @@ pub fn prepare_fog(
 ) {
     let views_iter = views.iter();
     let view_count = views_iter.len();
-    let Some(mut writer) = fog_meta
-        .gpu_fogs
-        .get_writer(view_count, &render_device, &render_queue)
-    else {
-        return;
-    };
+    fog_meta.gpu_fogs.clear();
+    fog_meta.gpu_fogs.reserve(view_count, &render_device);
+
     for (entity, fog) in views_iter {
         let gpu_fog = if let Some(fog) = fog {
             match &fog.falloff {
@@ -114,9 +121,12 @@ pub fn prepare_fog(
 
         // This is later read by `SetMeshViewBindGroup<I>`
         commands.entity(entity).insert(ViewFogUniformOffset {
-            offset: writer.write(&gpu_fog),
+            offset: fog_meta.gpu_fogs.push(gpu_fog) as u32,
         });
     }
+    fog_meta
+        .gpu_fogs
+        .write_buffer(&render_device, &render_queue);
 }
 
 /// Inserted on each `Entity` with an `ExtractedView` to keep track of its offset
@@ -140,9 +150,13 @@ impl Plugin for FogPlugin {
         app.add_plugins(ExtractComponentPlugin::<DistanceFog>::default());
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app
-                .init_resource::<FogMeta>()
-                .add_systems(Render, prepare_fog.in_set(RenderSet::PrepareResources));
+            render_app.add_systems(Render, prepare_fog.in_set(RenderSet::PrepareResources));
+        }
+    }
+
+    fn finish(&self, app: &mut App) {
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.init_resource::<FogMeta>();
         }
     }
 }
