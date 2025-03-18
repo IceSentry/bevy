@@ -537,7 +537,6 @@ pub struct AlignedRawBufferVec<T: NoUninit> {
     changed: bool,
     aligned_size: u64,
     required_padding: u64,
-    item_size: u64,
     _marker: PhantomData<T>,
 }
 
@@ -562,7 +561,6 @@ impl<T: NoUninit> AlignedRawBufferVec<T> {
             changed: false,
             aligned_size,
             required_padding,
-            item_size: item_size as u64,
             _marker: PhantomData,
         }
     }
