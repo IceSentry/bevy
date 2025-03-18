@@ -44,6 +44,7 @@ use bevy_render::{
 };
 use bevy_transform::{components::GlobalTransform, prelude::Transform};
 use bevy_utils::default;
+use bytemuck::{NoUninit, Pod, Zeroable};
 use core::{hash::Hash, marker::PhantomData, ops::Range};
 #[cfg(feature = "trace")]
 use tracing::info_span;
@@ -102,26 +103,35 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Copy, Clone, ShaderType, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, Pod, Zeroable)]
+#[repr(C)]
 pub struct GpuDirectionalCascade {
     clip_from_world: Mat4,
     texel_size: f32,
     far_bound: f32,
+    _pad0: u32,
+    _pad1: u32,
 }
 
-#[derive(Copy, Clone, ShaderType, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, Pod, Zeroable)]
+#[repr(C)]
 pub struct GpuDirectionalLight {
     cascades: [GpuDirectionalCascade; MAX_CASCADES_PER_LIGHT],
+
     color: Vec4,
+
     dir_to_light: Vec3,
     flags: u32,
+
     soft_shadow_size: f32,
     shadow_depth_bias: f32,
     shadow_normal_bias: f32,
     num_cascades: u32,
+
     cascades_overlap_proportion: f32,
     depth_texture_base_index: u32,
     skip: u32,
+    _pad0: u32,
 }
 
 // NOTE: These must match the bit flags in bevy_pbr/src/render/mesh_view_types.wgsl!
@@ -136,7 +146,8 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Copy, Clone, Debug, ShaderType)]
+#[derive(Copy, Clone, Debug, NoUninit)]
+#[repr(C)]
 pub struct GpuLights {
     directional_lights: [GpuDirectionalLight; MAX_DIRECTIONAL_LIGHTS],
     ambient_color: Vec4,
@@ -150,6 +161,7 @@ pub struct GpuLights {
     // offset from spot light's light index to spot light's shadow map index
     spot_light_shadowmap_offset: i32,
     ambient_light_affects_lightmapped_meshes: u32,
+    _pad0: u32,
 }
 
 // NOTE: When running bevy on Adreno GPU chipsets in WebGL, any value above 1 will result in a crash
@@ -647,9 +659,17 @@ pub struct ViewLightsUniformOffset {
     pub offset: u32,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct LightMeta {
-    pub view_gpu_lights: DynamicUniformBuffer<GpuLights>,
+    pub view_gpu_lights: AlignedRawBufferVec<GpuLights>,
+}
+impl FromWorld for LightMeta {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        Self {
+            view_gpu_lights: AlignedRawBufferVec::new(BufferUsages::UNIFORM, render_device),
+        }
+    }
 }
 
 #[derive(Component)]
@@ -755,13 +775,10 @@ pub fn prepare_lights(
 ) {
     let views_iter = views.iter();
     let views_count = views_iter.len();
-    let Some(mut view_gpu_lights_writer) =
-        light_meta
-            .view_gpu_lights
-            .get_writer(views_count, &render_device, &render_queue)
-    else {
-        return;
-    };
+    light_meta.view_gpu_lights.clear();
+    light_meta
+        .view_gpu_lights
+        .reserve(views_count, &render_device);
 
     // Pre-calculate for PointLights
     let cube_face_rotations = CUBE_MAP_FACES
@@ -1029,6 +1046,7 @@ pub fn prepare_lights(
             num_cascades: num_cascades as u32,
             cascades_overlap_proportion: light.cascade_shadow_config.overlap_proportion,
             depth_texture_base_index: num_directional_cascades_enabled as u32,
+            _pad0: 0,
         };
         if index < directional_shadow_enabled_count {
             num_directional_cascades_enabled += num_cascades;
@@ -1196,6 +1214,7 @@ pub fn prepare_lights(
                 - point_light_count as i32,
             ambient_light_affects_lightmapped_meshes: ambient_light.affects_lightmapped_meshes
                 as u32,
+            _pad0: 0,
         };
 
         // TODO: this should select lights based on relevance to the view instead of the first ones that show up in a query
@@ -1484,6 +1503,8 @@ pub fn prepare_lights(
                         clip_from_world: cascade.clip_from_world,
                         texel_size: cascade.texel_size,
                         far_bound: *bound,
+                        _pad0: 0,
+                        _pad1: 0,
                     };
 
                 let depth_texture_view =
@@ -1585,7 +1606,7 @@ pub fn prepare_lights(
                 lights: view_lights,
             },
             ViewLightsUniformOffset {
-                offset: view_gpu_lights_writer.write(&gpu_lights),
+                offset: light_meta.view_gpu_lights.push(gpu_lights) as u32,
             },
         ));
 
@@ -1599,6 +1620,9 @@ pub fn prepare_lights(
                 ));
         }
     }
+    light_meta
+        .view_gpu_lights
+        .write_buffer(&render_device, &render_queue);
 
     // Despawn light-view entities for views that no longer exist
     for mut entities in &mut light_view_entities {

@@ -98,7 +98,10 @@ impl FromWorld for AtmosphereBindGroupLayouts {
                         ),
                     ),
                     (3, uniform_buffer::<ViewUniform>(true)),
-                    (4, uniform_buffer::<GpuLights>(true)),
+                    (
+                        4,
+                        uniform_buffer_sized(true, NonZero::new(size_of::<GpuLights>() as u64)),
+                    ),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
                     (6, sampler(SamplerBindingType::Filtering)),
                     (7, texture_2d(TextureSampleType::Float { filterable: true })), //multiscattering lut and sampler
@@ -122,7 +125,10 @@ impl FromWorld for AtmosphereBindGroupLayouts {
                     (0, uniform_buffer::<Atmosphere>(true)),
                     (1, uniform_buffer::<AtmosphereSettings>(true)),
                     (3, uniform_buffer::<ViewUniform>(true)),
-                    (4, uniform_buffer::<GpuLights>(true)),
+                    (
+                        4,
+                        uniform_buffer_sized(true, NonZero::new(size_of::<GpuLights>() as u64)),
+                    ),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
                     (6, sampler(SamplerBindingType::Filtering)),
                     (7, texture_2d(TextureSampleType::Float { filterable: true })), //multiscattering lut and sampler
@@ -166,7 +172,10 @@ impl FromWorld for RenderSkyBindGroupLayouts {
                         ),
                     ),
                     (3, uniform_buffer::<ViewUniform>(true)),
-                    (4, uniform_buffer::<GpuLights>(true)),
+                    (
+                        4,
+                        uniform_buffer_sized(true, NonZero::new(size_of::<GpuLights>() as u64)),
+                    ),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
                     (6, sampler(SamplerBindingType::Filtering)),
                     (9, texture_2d(TextureSampleType::Float { filterable: true })), //sky view lut and sampler
@@ -201,7 +210,10 @@ impl FromWorld for RenderSkyBindGroupLayouts {
                         ),
                     ),
                     (3, uniform_buffer::<ViewUniform>(true)),
-                    (4, uniform_buffer::<GpuLights>(true)),
+                    (
+                        4,
+                        uniform_buffer_sized(true, NonZero::new(size_of::<GpuLights>() as u64)),
+                    ),
                     (5, texture_2d(TextureSampleType::Float { filterable: true })), //transmittance lut and sampler
                     (6, sampler(SamplerBindingType::Filtering)),
                     (9, texture_2d(TextureSampleType::Float { filterable: true })), //sky view lut and sampler

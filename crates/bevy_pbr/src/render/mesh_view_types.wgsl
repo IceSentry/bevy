@@ -26,6 +26,8 @@ struct DirectionalCascade {
     clip_from_world: mat4x4<f32>,
     texel_size: f32,
     far_bound: f32,
+    _pad0_: u32,
+    _pad1_: u32,
 }
 
 struct DirectionalLight {
@@ -41,6 +43,7 @@ struct DirectionalLight {
     cascades_overlap_proportion: f32,
     depth_texture_base_index: u32,
     skip: u32,
+    _pad0_: u32,
 };
 
 const DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT: u32                  = 1u;
