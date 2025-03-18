@@ -295,7 +295,10 @@ fn layout_entries(
             // Fog
             (12, uniform_buffer::<GpuFog>(true)),
             // Light probes
-            (13, uniform_buffer::<LightProbesUniform>(true)),
+            (
+                13,
+                uniform_buffer_sized(true, NonZero::new(size_of::<LightProbesUniform>() as u64)),
+            ),
             // Visibility ranges
             (
                 14,

@@ -147,6 +147,9 @@ struct LightProbes {
     // Whether the environment map attached to the view affects the diffuse
     // lighting for lightmapped meshes.
     view_environment_map_affects_lightmapped_mesh_diffuse: u32,
+
+    pad0_: u32,
+    pad1_: u32,
 };
 
 // Settings for screen space reflections.

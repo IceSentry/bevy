@@ -12,6 +12,7 @@ use bevy_ecs::{
     resource::Resource,
     schedule::IntoScheduleConfigs,
     system::{Commands, Local, Query, Res, ResMut},
+    world::FromWorld,
 };
 use bevy_image::Image;
 use bevy_math::{Affine3A, FloatOrd, Mat4, Vec3A, Vec4};
@@ -21,7 +22,10 @@ use bevy_render::{
     extract_instances::ExtractInstancesPlugin,
     primitives::{Aabb, Frustum},
     render_asset::RenderAssets,
-    render_resource::{DynamicUniformBuffer, Sampler, Shader, ShaderType, TextureView},
+    render_resource::{
+        AlignedRawBufferVec, BufferUsages, DynamicUniformBuffer, Sampler, Shader, ShaderType,
+        TextureView,
+    },
     renderer::{RenderAdapter, RenderDevice, RenderQueue},
     settings::WgpuFeatures,
     sync_world::RenderEntity,
@@ -30,6 +34,7 @@ use bevy_render::{
     Extract, ExtractSchedule, Render, RenderApp, RenderSet,
 };
 use bevy_transform::{components::Transform, prelude::GlobalTransform};
+use bytemuck::{NoUninit, Pod, Zeroable};
 use tracing::error;
 
 use core::{hash::Hash, ops::Deref};
@@ -111,7 +116,8 @@ pub struct LightProbePlugin;
 pub struct LightProbe;
 
 /// A GPU type that stores information about a light probe.
-#[derive(Clone, Copy, ShaderType, Default)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
+#[repr(C)]
 struct RenderLightProbe {
     /// The transform from the world space to the model space. This is used to
     /// efficiently check for bounding box intersection.
@@ -132,11 +138,14 @@ struct RenderLightProbe {
     /// Whether this light probe adds to the diffuse contribution of the
     /// irradiance for meshes with lightmaps.
     affects_lightmapped_mesh_diffuse: u32,
+
+    _pad0: u32,
 }
 
 /// A per-view shader uniform that specifies all the light probes that the view
 /// takes into account.
-#[derive(ShaderType)]
+#[derive(Clone, Copy, NoUninit)]
+#[repr(C)]
 pub struct LightProbesUniform {
     /// The list of applicable reflection probes, sorted from nearest to the
     /// camera to the farthest away from the camera.
@@ -171,11 +180,23 @@ pub struct LightProbesUniform {
     ///
     /// This will be 1 if the map does affect lightmapped meshes or 0 otherwise.
     view_environment_map_affects_lightmapped_mesh_diffuse: u32,
+
+    _pad0: u32,
+    _pad1: u32,
 }
 
 /// A GPU buffer that stores information about all light probes.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct LightProbesBuffer(DynamicUniformBuffer<LightProbesUniform>);
+#[derive(Resource, Deref, DerefMut)]
+pub struct LightProbesBuffer(AlignedRawBufferVec<LightProbesUniform>);
+impl FromWorld for LightProbesBuffer {
+    fn from_world(world: &mut bevy_ecs::world::World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        Self(AlignedRawBufferVec::new(
+            BufferUsages::UNIFORM,
+            render_device,
+        ))
+    }
+}
 
 /// A component attached to each camera in the render world that stores the
 /// index of the [`LightProbesUniform`] in the [`LightProbesBuffer`].
@@ -522,9 +543,8 @@ fn upload_light_probes(
     }
 
     // Initialize the uniform buffer writer.
-    let mut writer = light_probes_buffer
-        .get_writer(views.iter().len(), &render_device, &render_queue)
-        .unwrap();
+    light_probes_buffer.clear();
+    light_probes_buffer.reserve(views.iter().count(), &render_device);
 
     // Process each view.
     for view_entity in views.iter() {
@@ -560,6 +580,8 @@ fn upload_light_probes(
             view_environment_map_affects_lightmapped_mesh_diffuse: render_view_environment_maps
                 .map(|maps| maps.view_light_probe_info.affects_lightmapped_mesh_diffuse as u32)
                 .unwrap_or(1),
+            _pad0: 0,
+            _pad1: 0,
         };
 
         // Add any environment maps that [`gather_light_probes`] found to the
@@ -581,12 +603,14 @@ fn upload_light_probes(
         }
 
         // Queue the view's uniforms to be written to the GPU.
-        let uniform_offset = writer.write(&light_probes_uniform);
+        let uniform_offset = light_probes_buffer.push(light_probes_uniform);
 
         commands
             .entity(view_entity)
-            .insert(ViewLightProbesUniformOffset(uniform_offset));
+            .insert(ViewLightProbesUniformOffset(uniform_offset as u32));
     }
+
+    light_probes_buffer.write_buffer(&render_device, &render_queue);
 }
 
 impl Default for LightProbesUniform {
@@ -600,6 +624,8 @@ impl Default for LightProbesUniform {
             smallest_specular_mip_level_for_view: 0,
             intensity_for_view: 1.0,
             view_environment_map_affects_lightmapped_mesh_diffuse: 1,
+            _pad0: 0,
+            _pad1: 0,
         }
     }
 }
@@ -720,6 +746,7 @@ where
                 intensity: light_probe.intensity,
                 affects_lightmapped_mesh_diffuse: light_probe.affects_lightmapped_mesh_diffuse
                     as u32,
+                _pad0: 0,
             });
         }
     }

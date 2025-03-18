@@ -18,6 +18,8 @@ struct LightProbeQueryResult {
     light_from_world: mat4x4<f32>,
     // Whether this light probe contributes diffuse light to lightmapped meshes.
     affects_lightmapped_mesh_diffuse: bool,
+
+    pad0_: u32,
 };
 
 fn transpose_affine_matrix(matrix: mat3x4<f32>) -> mat4x4<f32> {
