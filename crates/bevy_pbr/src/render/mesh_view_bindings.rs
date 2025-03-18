@@ -307,7 +307,13 @@ fn layout_entries(
                 .visibility(ShaderStages::VERTEX),
             ),
             // Screen space reflection settings
-            (15, uniform_buffer::<ScreenSpaceReflectionsUniform>(true)),
+            (
+                15,
+                uniform_buffer_sized(
+                    true,
+                    NonZero::new(size_of::<ScreenSpaceReflectionsUniform>() as u64),
+                ),
+            ),
             // Screen space ambient occlusion texture
             (
                 16,

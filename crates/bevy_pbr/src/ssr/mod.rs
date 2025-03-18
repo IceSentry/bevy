@@ -23,23 +23,24 @@ use bevy_ecs::{
 };
 use bevy_image::BevyDefault as _;
 use bevy_reflect::{std_traits::ReflectDefault, Reflect};
-use bevy_render::render_graph::RenderGraph;
 use bevy_render::{
     extract_component::{ExtractComponent, ExtractComponentPlugin},
     render_graph::{NodeRunError, RenderGraphApp, RenderGraphContext, ViewNode, ViewNodeRunner},
     render_resource::{
         binding_types, AddressMode, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries,
-        CachedRenderPipelineId, ColorTargetState, ColorWrites, DynamicUniformBuffer, FilterMode,
-        FragmentState, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
-        RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, Shader,
-        ShaderStages, ShaderType, SpecializedRenderPipeline, SpecializedRenderPipelines,
-        TextureFormat, TextureSampleType,
+        BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, DynamicUniformBuffer,
+        FilterMode, FragmentState, Operations, PipelineCache, RenderPassColorAttachment,
+        RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+        SamplerDescriptor, Shader, ShaderStages, ShaderType, SpecializedRenderPipeline,
+        SpecializedRenderPipelines, TextureFormat, TextureSampleType,
     },
     renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue},
     view::{ExtractedView, Msaa, ViewTarget, ViewUniformOffset},
     Render, RenderApp, RenderSet,
 };
+use bevy_render::{render_graph::RenderGraph, render_resource::AlignedRawBufferVec};
 use bevy_utils::{once, prelude::default};
+use bytemuck::NoUninit;
 use tracing::info;
 
 use crate::{
@@ -129,7 +130,8 @@ pub struct ScreenSpaceReflections {
 ///
 /// For more information on these fields, see the corresponding documentation in
 /// [`ScreenSpaceReflections`].
-#[derive(Clone, Copy, Component, ShaderType)]
+#[derive(Clone, Copy, Component, NoUninit)]
+#[repr(C)]
 pub struct ScreenSpaceReflectionsUniform {
     perceptual_roughness_threshold: f32,
     thickness: f32,
@@ -161,8 +163,17 @@ pub struct ScreenSpaceReflectionsPipeline {
 }
 
 /// A GPU buffer that stores the screen space reflection settings for each view.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct ScreenSpaceReflectionsBuffer(pub DynamicUniformBuffer<ScreenSpaceReflectionsUniform>);
+#[derive(Resource, Deref, DerefMut)]
+pub struct ScreenSpaceReflectionsBuffer(pub AlignedRawBufferVec<ScreenSpaceReflectionsUniform>);
+impl FromWorld for ScreenSpaceReflectionsBuffer {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        Self(AlignedRawBufferVec::new(
+            BufferUsages::UNIFORM,
+            render_device,
+        ))
+    }
+}
 
 /// A component that stores the offset within the
 /// [`ScreenSpaceReflectionsBuffer`] for each view.
@@ -195,7 +206,6 @@ impl Plugin for ScreenSpaceReflectionsPlugin {
         };
 
         render_app
-            .init_resource::<ScreenSpaceReflectionsBuffer>()
             .add_systems(Render, prepare_ssr_pipelines.in_set(RenderSet::Prepare))
             .add_systems(
                 Render,
@@ -213,6 +223,7 @@ impl Plugin for ScreenSpaceReflectionsPlugin {
         };
 
         render_app
+            .init_resource::<ScreenSpaceReflectionsBuffer>()
             .init_resource::<ScreenSpaceReflectionsPipeline>()
             .init_resource::<SpecializedRenderPipelines<ScreenSpaceReflectionsPipeline>>();
 
@@ -478,21 +489,21 @@ pub fn prepare_ssr_settings(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    let Some(mut writer) =
-        ssr_settings_buffer.get_writer(views.iter().len(), &render_device, &render_queue)
-    else {
-        return;
-    };
+    ssr_settings_buffer.clear();
+    ssr_settings_buffer.reserve(views.iter().count(), &render_device);
 
     for (view, ssr_uniform) in views.iter() {
         let uniform_offset = match ssr_uniform {
             None => 0,
-            Some(ssr_uniform) => writer.write(ssr_uniform),
+            Some(ssr_uniform) => ssr_settings_buffer.push(*ssr_uniform),
         };
         commands
             .entity(view)
-            .insert(ViewScreenSpaceReflectionsUniformOffset(uniform_offset));
+            .insert(ViewScreenSpaceReflectionsUniformOffset(
+                uniform_offset as u32,
+            ));
     }
+    ssr_settings_buffer.write_buffer(&render_device, &render_queue);
 }
 
 impl ExtractComponent for ScreenSpaceReflections {
