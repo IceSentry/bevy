@@ -537,6 +537,7 @@ pub struct AlignedRawBufferVec<T: NoUninit> {
     changed: bool,
     aligned_size: u64,
     required_padding: u64,
+    item_size: u64,
     _marker: PhantomData<T>,
 }
 
@@ -551,6 +552,7 @@ impl<T: NoUninit> AlignedRawBufferVec<T> {
             AlignmentValue::new(render_device.limits().min_uniform_buffer_offset_alignment as u64);
         let aligned_size = alignment.round_up(item_size as u64);
         let required_padding = aligned_size - item_size as u64;
+        println!("aligned_size: {aligned_size} item_size: {item_size}");
         Self {
             values: Vec::new(),
             buffer: None,
@@ -560,6 +562,7 @@ impl<T: NoUninit> AlignedRawBufferVec<T> {
             changed: false,
             aligned_size,
             required_padding,
+            item_size: item_size as u64,
             _marker: PhantomData,
         }
     }
