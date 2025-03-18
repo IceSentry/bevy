@@ -19,7 +19,7 @@ use bevy_ecs::{
     world::{FromWorld, World},
 };
 use bevy_image::{BevyDefault, Image};
-use bevy_math::{vec4, Mat3A, Mat4, Vec3, Vec3A, Vec4, Vec4Swizzles as _, VectorSpace};
+use bevy_math::{vec4, Mat3A, Mat4, Vec3, Vec3A, Vec4, Vec4Swizzles as _};
 use bevy_render::{
     mesh::{
         allocator::MeshAllocator, Mesh, MeshVertexBufferLayoutRef, RenderMesh, RenderMeshBufferInfo,
@@ -31,12 +31,11 @@ use bevy_render::{
             sampler, texture_3d, texture_depth_2d, texture_depth_2d_multisampled,
             uniform_buffer_sized,
         },
-        encase::private::AlignmentValue,
         AlignedRawBufferVec, BindGroupLayout, BindGroupLayoutEntries, BindingResource,
         BlendComponent, BlendFactor, BlendOperation, BlendState, BufferUsages,
         CachedRenderPipelineId, ColorTargetState, ColorWrites, DynamicBindGroupEntries, Face,
         FragmentState, LoadOp, MultisampleState, Operations, PipelineCache, PrimitiveState,
-        RawBufferVec, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+        RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
         SamplerBindingType, Shader, ShaderStages, ShaderType, SpecializedRenderPipeline,
         SpecializedRenderPipelines, StoreOp, TextureFormat, TextureSampleType, TextureUsages,
         VertexState,
@@ -50,7 +49,7 @@ use bevy_render::{
 use bevy_transform::components::GlobalTransform;
 use bevy_utils::prelude::default;
 use bitflags::bitflags;
-use bytemuck::{NoUninit, Pod, Zeroable};
+use bytemuck::NoUninit;
 
 use crate::{
     FogVolume, MeshPipelineViewLayoutKey, MeshPipelineViewLayouts, MeshViewBindGroup,
