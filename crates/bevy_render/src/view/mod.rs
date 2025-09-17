@@ -41,6 +41,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use wgpu::{
+    util::{TextureBlitter, TextureBlitterBuilder},
     BufferUsages, RenderPassColorAttachment, RenderPassDepthStencilAttachment, StoreOp,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
@@ -609,6 +610,10 @@ pub struct ViewTarget {
     /// This is shared across view targets with the same render target
     main_texture: Arc<AtomicUsize>,
     out_texture: OutputColorAttachment,
+    /// A texture blitter configured for the main texture format
+    pub main_texture_blitter: TextureBlitter,
+    /// A texture blitter configured for the out texture format
+    pub out_texture_blitter: TextureBlitter,
 }
 
 /// Contains [`OutputColorAttachment`] used for each target present on any view in the current
@@ -1129,7 +1134,17 @@ pub fn prepare_view_targets(
             main_texture: main_textures.main_texture.clone(),
             main_textures,
             main_texture_format,
+            // TODO we need to be able to configure sample count
+            main_texture_blitter: TextureBlitter::new(
+                render_device.wgpu_device(),
+                main_texture_format,
+            ),
+
             out_texture: out_attachment.clone(),
+            out_texture_blitter: TextureBlitter::new(
+                render_device.wgpu_device(),
+                out_attachment.format,
+            ),
         });
     }
 }
