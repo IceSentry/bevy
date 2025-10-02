@@ -4711,6 +4711,19 @@ wasm = true
 hidden = true
 
 [[example]]
+name = "feathers_counter"
+path = "examples/ui/feathers_counter.rs"
+doc-scrape-examples = true
+required-features = ["experimental_bevy_feathers"]
+
+[package.metadata.example.feathers_counter]
+name = "Feathers Counter"
+description = "Feathers counter"
+category = "UI (User Interface)"
+wasm = true
+hidden = true
+
+[[example]]
 name = "render_depth_to_texture"
 path = "examples/shader_advanced/render_depth_to_texture.rs"
 doc-scrape-examples = true
