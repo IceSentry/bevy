@@ -105,6 +105,11 @@ impl ViewNode for MainOpaquePass3dNode {
                 if let Err(err) = opaque_phase.render(&mut render_pass, world, view_entity) {
                     error!("Error encountered while rendering the opaque phase {err:?}");
                 }
+
+                if opaque_phase.multidrawable_meshes.len() > 1 {
+                    tracing::warn!("more than one mesh");
+                    std::process::exit(1);
+                }
             }
 
             // Alpha draws

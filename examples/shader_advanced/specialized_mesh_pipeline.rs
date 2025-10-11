@@ -49,50 +49,38 @@ fn main() {
 }
 
 /// Spawns the objects in the scene.
-fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
-    // Build a custom triangle mesh with colors
-    // We define a custom mesh because the examples only uses a limited
-    // set of vertex attributes for simplicity
-    let mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    )
-    .with_inserted_indices(Indices::U32(vec![0, 1, 2]))
-    .with_inserted_attribute(
-        Mesh::ATTRIBUTE_POSITION,
-        vec![
-            vec3(-0.5, -0.5, 0.0),
-            vec3(0.5, -0.5, 0.0),
-            vec3(0.0, 0.25, 0.0),
-        ],
-    )
-    .with_inserted_attribute(
-        Mesh::ATTRIBUTE_COLOR,
-        vec![
-            vec4(1.0, 0.0, 0.0, 1.0),
-            vec4(0.0, 1.0, 0.0, 1.0),
-            vec4(0.0, 0.0, 1.0, 1.0),
-        ],
-    );
-
-    // spawn 3 triangles to show that batching works
-    for (x, y) in [-0.5, 0.0, 0.5].into_iter().zip([-0.25, 0.5, -0.25]) {
-        // Spawn an entity with all the required components for it to be rendered with our custom pipeline
-        commands.spawn((
-            // We use a marker component to identify the mesh that will be rendered
-            // with our specialized pipeline
-            CustomRenderedEntity,
-            // We need to add the mesh handle to the entity
-            Mesh3d(meshes.add(mesh.clone())),
-            Transform::from_xyz(x, y, 0.0),
-        ));
-    }
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // circular base
+    commands.spawn((
+        Mesh3d(meshes.add(Circle::new(4.0))),
+        MeshMaterial3d(materials.add(Color::WHITE)),
+        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+    ));
+    // cube
+    commands.spawn((
+        CustomRenderedEntity,
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    // light
+    commands.spawn((
+        PointLight {
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 8.0, 4.0),
+    ));
 
     // Spawn the camera.
     commands.spawn((
         Camera3d::default(),
         // Move the camera back a bit to see all the triangles
-        Transform::from_xyz(0.0, 0.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 

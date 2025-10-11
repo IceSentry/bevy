@@ -15,8 +15,6 @@ struct Vertex {
     // Like we defined for the vertex layout
     // position is at location 0
     @location(0) position: vec3<f32>,
-    // and color at location 1
-    @location(1) color: vec4<f32>,
 };
 
 // This is the output of the vertex shader and we also use it as the input for the fragment shader
@@ -36,7 +34,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.clip_position = position_world_to_clip(out.world_position.xyz);
 
     // We just use the raw vertex color
-    out.color = vertex.color.rgb;
+    out.color = vec3(0.2, 0.2, 1.0);
 
     return out;
 }
