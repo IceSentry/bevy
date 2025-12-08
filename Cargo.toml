@@ -3098,7 +3098,7 @@ doc-scrape-examples = true
 [package.metadata.example.texture_binding_array]
 name = "Texture Binding Array (Bindless Textures)"
 description = "A shader that shows how to bind and sample multiple textures as a binding array (a.k.a. bindless textures)."
-category = "Shaders"
+category = "Shaders Advanced"
 wasm = false
 
 [[example]]
@@ -3109,6 +3109,17 @@ doc-scrape-examples = true
 [package.metadata.example.specialized_mesh_pipeline]
 name = "Specialized Mesh Pipeline"
 description = "Demonstrates how to write a specialized mesh pipeline"
+category = "Shaders Advanced"
+wasm = true
+
+[[example]]
+name = "extra_material_bind_group"
+path = "examples/shader_advanced/extra_material_bind_group.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.extra_material_bind_group]
+name = "Extra Material Bind Group"
+description = "Demonstrates how to add a separate bind group to a custom material"
 category = "Shaders"
 wasm = true
 
