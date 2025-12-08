@@ -40,18 +40,20 @@ use bevy::{
             RenderPipelineDescriptor, ShaderStages, SpecializedMeshPipeline,
             SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexState,
         },
-        renderer::RenderDevice,
+        renderer::{RenderDevice, RenderQueue},
         view::{ExtractedView, RenderVisibleEntities, ViewTarget},
         Render, RenderApp, RenderStartup, RenderSystems,
     },
+    time::Time,
 };
 
 const SHADER_ASSET_PATH: &str = "shaders/extra_material_bind_group.wgsl";
 
-/// Resource that stores the prepared color bind group
+/// Resource that stores the prepared color bind group and buffer
 #[derive(Resource)]
 pub struct ColorBindGroup {
     bind_group: BindGroup,
+    buffer: bevy::render::render_resource::Buffer,
 }
 
 fn main() {
@@ -64,49 +66,55 @@ fn main() {
 
 /// Spawns the objects in the scene.
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
-    // Build a custom triangle mesh with colors
-    // We define a custom mesh because the examples only uses a limited
-    // set of vertex attributes for simplicity
-    let mesh = Mesh::new(
+    // Build a quad mesh (2 triangles forming a square)
+    let quad_mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     )
-    .with_inserted_indices(Indices::U32(vec![0, 1, 2]))
+    .with_inserted_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]))
     .with_inserted_attribute(
         Mesh::ATTRIBUTE_POSITION,
         vec![
             vec3(-0.5, -0.5, 0.0),
             vec3(0.5, -0.5, 0.0),
-            vec3(0.0, 0.25, 0.0),
+            vec3(0.5, 0.5, 0.0),
+            vec3(-0.5, 0.5, 0.0),
         ],
     )
     .with_inserted_attribute(
         Mesh::ATTRIBUTE_COLOR,
         vec![
-            vec4(1.0, 0.0, 0.0, 1.0),
-            vec4(0.0, 1.0, 0.0, 1.0),
-            vec4(0.0, 0.0, 1.0, 1.0),
+            vec4(1.0, 1.0, 1.0, 1.0),
+            vec4(1.0, 1.0, 1.0, 1.0),
+            vec4(1.0, 1.0, 1.0, 1.0),
+            vec4(1.0, 1.0, 1.0, 1.0),
         ],
     );
 
-    // spawn 3 triangles to show that batching works
-    for (x, y) in [-0.5, 0.0, 0.5].into_iter().zip([-0.25, 0.5, -0.25]) {
-        // Spawn an entity with all the required components for it to be rendered with our custom pipeline
-        commands.spawn((
-            // We use a marker component to identify the mesh that will be rendered
-            // with our specialized pipeline
-            CustomRenderedEntity,
-            // We need to add the mesh handle to the entity
-            Mesh3d(meshes.add(mesh.clone())),
-            Transform::from_xyz(x, y, 0.0),
-        ));
+    let quad_mesh_handle = meshes.add(quad_mesh);
+
+    // Spawn a 100x100 grid of quads
+    let grid_size = 100;
+    let spacing = 1.2;
+    let grid_offset = (grid_size as f32 - 1.0) * spacing / 2.0;
+
+    for x in 0..grid_size {
+        for y in 0..grid_size {
+            let world_x = x as f32 * spacing - grid_offset;
+            let world_y = y as f32 * spacing - grid_offset;
+
+            commands.spawn((
+                CustomRenderedEntity,
+                Mesh3d(quad_mesh_handle.clone()),
+                Transform::from_xyz(world_x, world_y, 0.0),
+            ));
+        }
     }
 
-    // Spawn the camera.
+    // Spawn the camera with better positioning for the grid
     commands.spawn((
         Camera3d::default(),
-        // Move the camera back a bit to see all the triangles
-        Transform::from_xyz(0.0, 0.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 0.0, 150.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 
@@ -133,7 +141,10 @@ impl Plugin for CustomRenderedMeshPipelinePlugin {
             )
             .add_systems(
                 Render,
-                queue_custom_mesh_pipeline.in_set(RenderSystems::Queue),
+                (
+                    update_color_buffer.in_set(RenderSystems::Prepare),
+                    queue_custom_mesh_pipeline.in_set(RenderSystems::Queue),
+                ),
             );
     }
 }
@@ -213,7 +224,7 @@ fn init_custom_mesh_pipeline(
 ) {
     // Load the shader
     let shader_handle: Handle<Shader> = asset_server.load(SHADER_ASSET_PATH);
-    
+
     // Create the bind group layout descriptor for the color uniform
     let color_bind_group_layout_descriptor = BindGroupLayoutDescriptor {
         label: std::borrow::Cow::Borrowed("color_bind_group_layout"),
@@ -228,10 +239,12 @@ fn init_custom_mesh_pipeline(
             count: None,
         }],
     };
-    
+
     // Create the actual bind group layout
-    let color_bind_group_layout =
-        render_device.create_bind_group_layout("color_bind_group_layout", &color_bind_group_layout_descriptor.entries);
+    let color_bind_group_layout = render_device.create_bind_group_layout(
+        "color_bind_group_layout",
+        &color_bind_group_layout_descriptor.entries,
+    );
 
     commands.insert_resource(CustomMeshPipeline {
         mesh_pipeline: mesh_pipeline.clone(),
@@ -248,11 +261,11 @@ fn prepare_color(
 ) {
     // Create the color uniform (red color)
     let color = Vec4::new(1.0, 0.0, 0.0, 1.0);
-    
+
     // Convert Vec4 to bytes using bytemuck
     let color_slice = [color];
     let color_bytes = bytemuck::cast_slice(&color_slice);
-    
+
     // Create a buffer to hold the color data
     let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("color_buffer"),
@@ -270,7 +283,22 @@ fn prepare_color(
         }],
     );
 
-    commands.insert_resource(ColorBindGroup { bind_group });
+    commands.insert_resource(ColorBindGroup { bind_group, buffer });
+}
+
+/// Update the color buffer every frame by rotating through HSL color space
+fn update_color_buffer(
+    color_bind_group: Res<ColorBindGroup>,
+    render_queue: Res<RenderQueue>,
+    time: Res<Time>,
+) {
+    // Rotate hue over time (360 degrees in 10 seconds)
+    let hue = (time.elapsed_secs() * 36.0) % 360.0;
+
+    let hsl = Color::hsl(hue, 1.0, 0.5);
+    let color_array = hsl.to_linear().to_f32_array();
+    let color_bytes = bytemuck::cast_slice(&color_array);
+    render_queue.write_buffer(&color_bind_group.buffer, 0, color_bytes);
 }
 
 impl SpecializedMeshPipeline for CustomMeshPipeline {

@@ -8,8 +8,7 @@
     view_transformations::position_world_to_clip
 }
 
-@group(3) @binding(0)
-var<uniform> color: vec4<f32>;
+@group(3) @binding(0) var<uniform> color: vec4<f32>;
 
 struct Vertex {
     // This is needed if you are using batching and/or gpu preprocessing
