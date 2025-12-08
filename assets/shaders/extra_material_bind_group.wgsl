@@ -8,6 +8,9 @@
     view_transformations::position_world_to_clip
 }
 
+@group(3) @binding(0)
+var<uniform> color: vec4<f32>;
+
 struct Vertex {
     // This is needed if you are using batching and/or gpu preprocessing
     // It's a built in so you don't need to define it in the vertex layout
@@ -43,6 +46,5 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // output the color directly
-    return vec4(in.color, 1.0);
+    return color;
 }

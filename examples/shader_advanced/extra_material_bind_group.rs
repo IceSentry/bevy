@@ -6,11 +6,16 @@
 //!
 //! [`SpecializedMeshPipeline`] let's you customize the entire pipeline used when rendering a mesh.
 
+use std::num::NonZeroU64;
+
 use bevy::{
     asset::RenderAssetUsages,
     camera::visibility::{self, VisibilityClass},
     core_pipeline::core_3d::{Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, CORE_3D_DEPTH_FORMAT},
-    ecs::change_detection::Tick,
+    ecs::{
+        change_detection::Tick,
+        system::{lifetimeless::SRes, SystemParamItem},
+    },
     math::{vec3, vec4},
     mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology},
     pbr::{
@@ -24,21 +29,30 @@ use bevy::{
         mesh::{allocator::MeshAllocator, RenderMesh},
         render_asset::RenderAssets,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, SetItemPipeline,
-            ViewBinnedRenderPhases,
+            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
         },
         render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BufferBindingType, BufferInitDescriptor, BufferUsages,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Face, FragmentState,
             FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
-            RenderPipelineDescriptor, SpecializedMeshPipeline, SpecializedMeshPipelineError,
-            SpecializedMeshPipelines, TextureFormat, VertexState,
+            RenderPipelineDescriptor, ShaderStages, SpecializedMeshPipeline,
+            SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexState,
         },
+        renderer::RenderDevice,
         view::{ExtractedView, RenderVisibleEntities, ViewTarget},
         Render, RenderApp, RenderStartup, RenderSystems,
     },
 };
 
-const SHADER_ASSET_PATH: &str = "shaders/specialized_mesh_pipeline.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/extra_material_bind_group.wgsl";
+
+/// Resource that stores the prepared color bind group
+#[derive(Resource)]
+pub struct ColorBindGroup {
+    bind_group: BindGroup,
+}
 
 fn main() {
     App::new()
@@ -113,7 +127,10 @@ impl Plugin for CustomRenderedMeshPipelinePlugin {
             .init_resource::<SpecializedMeshPipelines<CustomMeshPipeline>>()
             // We need to use a custom draw command so we need to register it
             .add_render_command::<Opaque3d, DrawSpecializedPipelineCommands>()
-            .add_systems(RenderStartup, init_custom_mesh_pipeline)
+            .add_systems(
+                RenderStartup,
+                (init_custom_mesh_pipeline, prepare_color).chain(),
+            )
             .add_systems(
                 Render,
                 queue_custom_mesh_pipeline.in_set(RenderSystems::Queue),
@@ -133,6 +150,27 @@ impl Plugin for CustomRenderedMeshPipelinePlugin {
 #[component(on_add = visibility::add_visibility_class::<CustomRenderedEntity>)]
 struct CustomRenderedEntity;
 
+/// Custom render command that sets the color bind group
+pub struct SetColorBindGroup<const I: usize>;
+
+impl<const I: usize> RenderCommand<Opaque3d> for SetColorBindGroup<I> {
+    type Param = SRes<ColorBindGroup>;
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    #[inline]
+    fn render<'w>(
+        _item: &Opaque3d,
+        _view: (),
+        _entity: Option<()>,
+        color_bind_group: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        pass.set_bind_group(I, &color_bind_group.into_inner().bind_group, &[]);
+        RenderCommandResult::Success
+    }
+}
+
 /// The custom draw commands that Bevy executes for each entity we enqueue into
 /// the render phase.
 type DrawSpecializedPipelineCommands = (
@@ -144,6 +182,8 @@ type DrawSpecializedPipelineCommands = (
     SetMeshViewEmptyBindGroup<1>,
     // Set the mesh uniform at bind group 2
     SetMeshBindGroup<2>,
+    // Set the color tint uniform at bind group 3
+    SetColorBindGroup<3>,
     // Draw the mesh
     DrawMesh,
 );
@@ -159,19 +199,78 @@ struct CustomMeshPipeline {
     /// Stores the shader used for this pipeline directly on the pipeline.
     /// This isn't required, it's only done like this for simplicity.
     shader_handle: Handle<Shader>,
+    /// The descriptor for the bind group layout for the color uniform
+    color_bind_group_layout_descriptor: BindGroupLayoutDescriptor,
+    /// The actual bind group layout for creating bind groups
+    color_bind_group_layout: BindGroupLayout,
 }
 
 fn init_custom_mesh_pipeline(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mesh_pipeline: Res<MeshPipeline>,
+    render_device: Res<RenderDevice>,
 ) {
     // Load the shader
     let shader_handle: Handle<Shader> = asset_server.load(SHADER_ASSET_PATH);
+    
+    // Create the bind group layout descriptor for the color uniform
+    let color_bind_group_layout_descriptor = BindGroupLayoutDescriptor {
+        label: std::borrow::Cow::Borrowed("color_bind_group_layout"),
+        entries: vec![BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::FRAGMENT,
+            ty: bevy::render::render_resource::BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: NonZeroU64::new(16), // Vec4 is 16 bytes
+            },
+            count: None,
+        }],
+    };
+    
+    // Create the actual bind group layout
+    let color_bind_group_layout =
+        render_device.create_bind_group_layout("color_bind_group_layout", &color_bind_group_layout_descriptor.entries);
+
     commands.insert_resource(CustomMeshPipeline {
         mesh_pipeline: mesh_pipeline.clone(),
         shader_handle,
+        color_bind_group_layout_descriptor,
+        color_bind_group_layout,
     });
+}
+
+fn prepare_color(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    custom_pipeline: Res<CustomMeshPipeline>,
+) {
+    // Create the color uniform (red color)
+    let color = Vec4::new(1.0, 0.0, 0.0, 1.0);
+    
+    // Convert Vec4 to bytes using bytemuck
+    let color_slice = [color];
+    let color_bytes = bytemuck::cast_slice(&color_slice);
+    
+    // Create a buffer to hold the color data
+    let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("color_buffer"),
+        contents: color_bytes,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+
+    // Create the bind group with the color buffer
+    let bind_group = render_device.create_bind_group(
+        "color_bind_group",
+        &custom_pipeline.color_bind_group_layout,
+        &[BindGroupEntry {
+            binding: 0,
+            resource: buffer.as_entire_binding(),
+        }],
+    );
+
+    commands.insert_resource(ColorBindGroup { bind_group });
 }
 
 impl SpecializedMeshPipeline for CustomMeshPipeline {
@@ -211,6 +310,7 @@ impl SpecializedMeshPipeline for CustomMeshPipeline {
                 view_layout.main_layout.clone(),
                 view_layout.empty_layout.clone(),
                 self.mesh_pipeline.mesh_layouts.model_only.clone(),
+                self.color_bind_group_layout_descriptor.clone(),
             ],
             vertex: VertexState {
                 shader: self.shader_handle.clone(),
