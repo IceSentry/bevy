@@ -41,7 +41,7 @@ fn main() {
             LogDiagnosticsPlugin::default(),
             FrameTimeDiagnosticsPlugin::default(),
         ))
-        .add_systems(Startup, init_cursor_icons)
+        .add_systems(Startup, (setup, init_cursor_icons))
         .add_systems(
             Update,
             (
@@ -56,6 +56,10 @@ fn main() {
             ),
         )
         .run();
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn(Camera3d::default());
 }
 
 fn make_visible(mut window: Single<&mut Window>, frames: Res<FrameCount>) {
