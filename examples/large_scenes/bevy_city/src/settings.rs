@@ -15,6 +15,9 @@ use rand::RngExt;
 use crate::assets::CityAssets;
 use crate::generate_city::{spawn_city, CityRoot};
 
+#[derive(Component)]
+pub struct SettingsPanel;
+
 #[derive(Resource)]
 pub struct Settings {
     pub simulate_cars: bool,
@@ -36,6 +39,8 @@ impl Default for Settings {
 
 pub fn setup_settings_ui(mut commands: Commands) {
     commands.spawn((
+        SettingsPanel,
+        Visibility::Hidden,
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(10.0),
@@ -132,13 +137,14 @@ pub fn setup_settings_ui(mut commands: Commands) {
                         |_activate: On<Activate>,
                          mut commands: Commands,
                          city_root: Single<Entity, With<CityRoot>>,
-                         assets: Res<CityAssets>| {
+                         assets: Res<CityAssets>,
+                         args: Res<crate::Args>| {
                             commands.entity(*city_root).despawn();
 
                             let mut rng = rand::rng();
                             let seed = rng.random::<u64>();
                             println!("new seed: {seed}");
-                            spawn_city(&mut commands, &assets, seed, 32);
+                            spawn_city(&mut commands, &assets, seed, args.size, args.blocks_per_frame);
                         }
                     )
                 ),

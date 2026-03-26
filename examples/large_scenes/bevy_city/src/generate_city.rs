@@ -7,75 +7,114 @@ use crate::{assets::CityAssets, Car, Road};
 #[derive(Component)]
 pub struct CityRoot;
 
-/// Spawns a grid of city blocks
-///
-/// For simplicity we spawn the roads and buildings in this pattern
-///
-/// X-------
-/// | B B B
-/// | B B B
-///
-/// X = crossroad, B = buildings
-///
-/// This way we can easily tile each city block
-/// Each city block is 5.5 units x 4.0 units.
-///
-/// Every asset gets spawned relative to the crossroad position
-pub fn spawn_city(commands: &mut Commands, assets: &CityAssets, seed: u64, size: u32) {
+#[derive(Resource)]
+pub struct CitySpawnQueue {
+    city_root: Entity,
+    rng: SmallRng,
+    noise: OpenSimplex,
+    blocks: Vec<(i32, i32)>,
+    blocks_per_frame: u32,
+}
+
+impl CitySpawnQueue {
+    pub fn blocks_remaining(&self) -> usize {
+        self.blocks.len()
+    }
+}
+
+const NOISE_SCALE: f64 = 0.025;
+
+/// Initializes the city root and queues all blocks for incremental spawning.
+pub fn spawn_city(commands: &mut Commands, assets: &CityAssets, seed: u64, size: u32, blocks_per_frame: u32) {
+    let _ = assets; // Assets are only needed during block spawning.
     let mut rng = SmallRng::seed_from_u64(seed);
     let noise = OpenSimplex::new(rng.random());
-    let noise_scale = 0.025;
 
-    commands
+    let city_root = commands
         .spawn((CityRoot, Transform::default(), Visibility::default()))
-        .with_children(|commands| {
-            let half_size = size as i32 / 2;
-            for x in -half_size..half_size {
-                for z in -half_size..half_size {
-                    // scale the position to match the city block size
-                    let x = x as f32 * 5.5;
-                    let z = z as f32 * 4.0;
-                    let offset = Vec3::new(x, 0.0, z);
+        .id();
 
-                    spawn_roads_and_cars(commands, assets, &mut rng, offset);
+    let half_size = size as i32 / 2;
+    let mut blocks: Vec<(i32, i32)> = (-half_size..half_size)
+        .flat_map(|x| (-half_size..half_size).map(move |z| (x, z)))
+        .collect();
+    blocks.sort_unstable_by_key(|(x, z)| -(x * x + z * z)); // pop() yields center-first
 
-                    let density = noise.get([
-                        offset.x as f64 * noise_scale,
-                        offset.z as f64 * noise_scale,
-                        0.0,
-                    ]) * 0.5
-                        + 0.5;
+    commands.insert_resource(CitySpawnQueue {
+        city_root,
+        rng,
+        noise,
+        blocks,
+        blocks_per_frame,
+    });
+}
 
-                    let forest = 0.45;
-                    let low_density = 0.6;
-                    let medium_density = 0.7;
+pub fn spawn_city_blocks(
+    mut commands: Commands,
+    assets: Res<CityAssets>,
+    queue: Option<ResMut<CitySpawnQueue>>,
+) {
+    let Some(mut queue) = queue else { return };
 
-                    let ground_tile_scale = Vec3::new(4.5, 1.0, 3.0);
-                    commands.spawn((
-                        Mesh3d(assets.ground_tile.0.clone()),
-                        if density < low_density {
-                            MeshMaterial3d(assets.ground_tile.2.clone())
-                        } else {
-                            MeshMaterial3d(assets.ground_tile.1.clone())
-                        },
-                        Transform::from_translation(
-                            Vec3::new(0.5, -0.5005, 0.5) + ground_tile_scale / 2.0 + offset,
-                        )
-                        .with_scale(ground_tile_scale),
-                    ));
+    let noise = queue.noise;
+    let city_root = queue.city_root;
+    let count = queue.blocks_per_frame as usize;
 
-                    if density < forest {
-                        spawn_forest(commands, assets, &mut rng, offset);
-                    } else if density < low_density {
-                        spawn_low_density(commands, assets, &mut rng, offset);
-                    } else if density < medium_density {
-                        spawn_medium_density(commands, assets, &mut rng, offset);
+    let to_spawn: Vec<(i32, i32)> = (0..count)
+        .filter_map(|_| queue.blocks.pop())
+        .collect();
+
+    {
+        let rng = &mut queue.rng;
+        commands.entity(city_root).with_children(|commands| {
+            for (xi, zi) in to_spawn {
+                let x = xi as f32 * 5.5;
+                let z = zi as f32 * 4.0;
+                let offset = Vec3::new(x, 0.0, z);
+
+                spawn_roads_and_cars(commands, &assets, rng, offset);
+
+                let density = noise.get([
+                    offset.x as f64 * NOISE_SCALE,
+                    offset.z as f64 * NOISE_SCALE,
+                    0.0,
+                ]) * 0.5
+                    + 0.5;
+
+                let forest = 0.45;
+                let low_density = 0.6;
+                let medium_density = 0.7;
+
+                let ground_tile_scale = Vec3::new(4.5, 1.0, 3.0);
+                commands.spawn((
+                    Mesh3d(assets.ground_tile.0.clone()),
+                    if density < low_density {
+                        MeshMaterial3d(assets.ground_tile.2.clone())
                     } else {
-                        spawn_high_density(commands, assets, &mut rng, offset);
-                    }
+                        MeshMaterial3d(assets.ground_tile.1.clone())
+                    },
+                    Transform::from_translation(
+                        Vec3::new(0.5, -0.5005, 0.5) + ground_tile_scale / 2.0 + offset,
+                    )
+                    .with_scale(ground_tile_scale),
+                ));
+
+                if density < forest {
+                    spawn_forest(commands, &assets, rng, offset);
+                } else if density < low_density {
+                    spawn_low_density(commands, &assets, rng, offset);
+                } else if density < medium_density {
+                    spawn_medium_density(commands, &assets, rng, offset);
+                } else {
+                    spawn_high_density(commands, &assets, rng, offset);
                 }
             }
         });
+    }
+
+    if queue.blocks.is_empty() {
+        commands.remove_resource::<CitySpawnQueue>();
+    }
 }
 
 fn spawn_roads_and_cars<R: RngExt>(

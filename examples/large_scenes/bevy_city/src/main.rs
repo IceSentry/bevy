@@ -20,8 +20,8 @@ use bevy::{
     winit::WinitSettings,
 };
 
-use crate::settings::Settings;
-use crate::{generate_city::spawn_city, settings::setup_settings_ui};
+use crate::settings::{Settings, SettingsPanel};
+use crate::{generate_city::{spawn_city, spawn_city_blocks, CitySpawnQueue}, settings::setup_settings_ui};
 
 mod assets;
 mod generate_city;
@@ -41,6 +41,10 @@ pub struct Args {
     /// adds NoCpuCulling to all meshes
     #[argh(switch)]
     no_cpu_culling: bool,
+
+    /// number of city blocks to spawn per frame
+    #[argh(option, default = "10")]
+    pub blocks_per_frame: u32,
 }
 
 fn main() {
@@ -76,14 +80,12 @@ fn main() {
         .insert_resource(StaticTransformOptimizations::Enabled)
         .add_systems(
             Startup,
-            (
-                setup,
-                setup_settings_ui,
-                load_assets,
-                (setup_city.after(load_assets), add_no_cpu_culling).chain(),
-            ),
+            (setup, setup_settings_ui, load_assets, setup_loading_screen),
         )
-        .add_systems(Update, simulate_cars)
+        .add_systems(
+            Update,
+            (simulate_cars, setup_city_when_loaded, spawn_city_blocks, add_no_cpu_culling),
+        )
         .add_observer(add_no_cpu_culling_on_scene_ready)
         .run();
 }
@@ -120,9 +122,95 @@ fn setup(mut commands: Commands, mut scattering_mediums: ResMut<Assets<Scatterin
     ));
 }
 
-fn setup_city(mut commands: Commands, assets: Res<CityAssets>, args: Res<Args>) {
-    spawn_city(&mut commands, &assets, args.seed, args.size);
+fn setup_loading_screen(mut commands: Commands) {
+    commands.spawn((
+        LoadingScreen,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
+        children![(
+            LoadingText,
+            Text::new("Loading..."),
+            TextFont {
+                font_size: FontSize::Px(24.0),
+                ..default()
+            },
+        )],
+    ));
 }
+
+fn setup_city_when_loaded(
+    mut commands: Commands,
+    assets: Res<CityAssets>,
+    asset_server: Res<AssetServer>,
+    args: Res<Args>,
+    mut city_spawned: Local<bool>,
+    mut all_assets_loaded: Local<bool>,
+    mut last_counts: Local<(usize, usize)>,
+    loading_screen: Option<Single<Entity, With<LoadingScreen>>>,
+    mut loading_text: Option<Single<&mut Text, With<LoadingText>>>,
+    spawn_queue: Option<Res<CitySpawnQueue>>,
+    settings_panel: Option<Single<Entity, With<SettingsPanel>>>,
+) {
+    if *city_spawned {
+        match spawn_queue {
+            None => {
+                if let Some(entity) = loading_screen {
+                    commands.entity(*entity).despawn();
+                }
+                if let Some(entity) = settings_panel {
+                    commands.entity(*entity).insert(Visibility::Visible);
+                }
+            }
+            Some(queue) => {
+                if let Some(ref mut text) = loading_text {
+                    text.0 = format!("Spawning city: {} blocks remaining", queue.blocks_remaining());
+                }
+            }
+        }
+        return;
+    }
+    // All assets were loaded last frame — spawn city now that the text was rendered.
+    if *all_assets_loaded {
+        spawn_city(&mut commands, &assets, args.seed, args.size, args.blocks_per_frame);
+        if let Some(entity) = loading_screen {
+            commands.entity(*entity).remove::<BackgroundColor>();
+        }
+        *city_spawned = true;
+        return;
+    }
+    let progress = assets.load_progress(&asset_server);
+    if (progress.loaded, progress.total) != *last_counts {
+        let pending_str = progress
+            .pending
+            .iter()
+            .map(|p| assets::strip_base_url(p.clone()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some(ref mut text) = loading_text {
+            text.0 = format!(
+                "Loading assets: {}/{}\n\n{}",
+                progress.loaded, progress.total, pending_str
+            );
+        }
+        *last_counts = (progress.loaded, progress.total);
+    }
+    if progress.loaded == progress.total {
+        *all_assets_loaded = true;
+    }
+}
+
+#[derive(Component)]
+struct LoadingScreen;
+
+#[derive(Component)]
+struct LoadingText;
 
 #[derive(Component)]
 struct Road {

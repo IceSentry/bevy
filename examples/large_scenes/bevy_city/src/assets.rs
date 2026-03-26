@@ -1,6 +1,28 @@
 use bevy::{color::palettes::css::WHITE, prelude::*};
 use rand::RngExt;
 
+const BASE_URL: &str = "https://github.com/bevyengine/bevy_asset_files/raw/main/kenney";
+
+pub fn strip_base_url(path: String) -> String {
+    path.strip_prefix(BASE_URL)
+        .map(|s| s.trim_start_matches('/').to_string())
+        .unwrap_or(path)
+}
+
+pub struct LoadProgress {
+    pub loaded: usize,
+    pub total: usize,
+    pub pending: Vec<String>,
+}
+
+impl LoadProgress {
+    fn merge(&mut self, other: LoadProgress) {
+        self.loaded += other.loaded;
+        self.total += other.total;
+        self.pending.extend(other.pending);
+    }
+}
+
 #[derive(Resource)]
 pub struct CityAssets {
     pub cars: Vec<Handle<Scene>>,
@@ -21,6 +43,44 @@ pub struct CityAssets {
 }
 
 impl CityAssets {
+    pub fn load_progress(&self, asset_server: &AssetServer) -> LoadProgress {
+        let mut progress = LoadProgress {
+            loaded: 0,
+            total: 0,
+            pending: Vec::new(),
+        };
+        let scenes = &[
+            &self.crossroad,
+            &self.road_straight,
+            &self.tree_small,
+            &self.tree_large,
+            &self.path_stones_long,
+            &self.fence,
+        ];
+        for h in self.cars.iter().chain(scenes.iter().copied()) {
+            if let Some(path) = asset_server.get_path(h.id()) {
+                progress.total += 1;
+                if asset_server.is_loaded_with_dependencies(h) {
+                    progress.loaded += 1;
+                } else {
+                    progress.pending.push(path.to_string());
+                }
+            }
+        }
+        if let Some(path) = asset_server.get_path(self.ground_tile.0.id()) {
+            progress.total += 1;
+            if asset_server.is_loaded_with_dependencies(&self.ground_tile.0) {
+                progress.loaded += 1;
+            } else {
+                progress.pending.push(path.to_string());
+            }
+        }
+        progress.merge(self.high_density.load_progress(asset_server));
+        progress.merge(self.medium_density.load_progress(asset_server));
+        progress.merge(self.low_density.load_progress(asset_server));
+        progress
+    }
+
     pub fn get_random_car<R: RngExt>(&self, rng: &mut R) -> Handle<Scene> {
         self.cars[rng.random_range(0..self.cars.len())].clone()
     }
@@ -32,6 +92,35 @@ pub struct Buildings {
 }
 
 impl Buildings {
+    pub fn load_progress(&self, asset_server: &AssetServer) -> LoadProgress {
+        let mut progress = LoadProgress {
+            loaded: 0,
+            total: 0,
+            pending: Vec::new(),
+        };
+        for h in &self.meshes {
+            if let Some(path) = asset_server.get_path(h.id()) {
+                progress.total += 1;
+                if asset_server.is_loaded_with_dependencies(h) {
+                    progress.loaded += 1;
+                } else {
+                    progress.pending.push(path.to_string());
+                }
+            }
+        }
+        for h in &self.materials {
+            if let Some(path) = asset_server.get_path(h.id()) {
+                progress.total += 1;
+                if asset_server.is_loaded_with_dependencies(h) {
+                    progress.loaded += 1;
+                } else {
+                    progress.pending.push(path.to_string());
+                }
+            }
+        }
+        progress
+    }
+
     pub fn get_random_building<R: RngExt>(
         &self,
         rng: &mut R,
@@ -47,7 +136,7 @@ pub fn load_assets(
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let base_url = "https://github.com/bevyengine/bevy_asset_files/raw/main/kenney";
+    let base_url = BASE_URL;
 
     let cars = {
         // TODO generate color variations
