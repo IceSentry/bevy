@@ -213,13 +213,9 @@ struct LoadingScreen;
 struct LoadingText;
 
 #[derive(Component)]
-struct Road {
-    start: Vec3,
-    end: Vec3,
-}
-
-#[derive(Component)]
 struct Car {
+    road_start: Vec3,
+    road_end: Vec3,
     offset: Vec3,
     distance_traveled: f32,
     dir: f32,
@@ -227,31 +223,23 @@ struct Car {
 
 fn simulate_cars(
     settings: Res<Settings>,
-    roads: Query<(&Road, &Transform, &Children), Without<Car>>,
-    mut cars: Query<(&mut Car, &mut Transform), Without<Road>>,
+    mut cars: Query<(&mut Car, &mut Transform)>,
     time: Res<Time>,
 ) {
     if !settings.simulate_cars {
         return;
     }
     let speed = 1.5;
-
-    for (road, _, children) in &roads {
-        for child in children {
-            let Ok((mut car, mut car_transform)) = cars.get_mut(*child) else {
-                continue;
-            };
-
-            car.distance_traveled += speed * time.delta_secs();
-            let road_len = (road.end - road.start).length();
-            if car.distance_traveled > road_len {
-                car.distance_traveled = 0.0;
-            }
-            let direction = (road.end - road.start).normalize() * car.dir;
-
-            let progress = car.distance_traveled / road_len;
-            car_transform.translation = (road.start + car.offset) + direction * road_len * progress;
+    for (mut car, mut car_transform) in &mut cars {
+        car.distance_traveled += speed * time.delta_secs();
+        let road_vec = car.road_end - car.road_start;
+        let road_len = road_vec.length();
+        if car.distance_traveled > road_len {
+            car.distance_traveled = 0.0;
         }
+        let direction = road_vec.normalize() * car.dir;
+        let progress = car.distance_traveled / road_len;
+        car_transform.translation = (car.road_start + car.offset) + direction * road_len * progress;
     }
 }
 

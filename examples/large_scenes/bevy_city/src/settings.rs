@@ -14,6 +14,7 @@ use rand::RngExt;
 
 use crate::assets::CityAssets;
 use crate::generate_city::{spawn_city, CityRoot};
+use crate::Car;
 
 #[derive(Component)]
 pub struct SettingsPanel;
@@ -137,9 +138,13 @@ pub fn setup_settings_ui(mut commands: Commands) {
                         |_activate: On<Activate>,
                          mut commands: Commands,
                          city_root: Single<Entity, With<CityRoot>>,
+                         cars: Query<Entity, With<Car>>,
                          assets: Res<CityAssets>,
                          args: Res<crate::Args>| {
                             commands.entity(*city_root).despawn();
+                            for car in &cars {
+                                commands.entity(car).despawn();
+                            }
 
                             let mut rng = rand::rng();
                             let seed = rng.random::<u64>();
