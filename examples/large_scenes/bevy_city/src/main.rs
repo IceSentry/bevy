@@ -8,10 +8,13 @@ use bevy::{
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
     color::palettes::css::WHITE,
     feathers::{dark_theme::create_dark_theme, theme::UiTheme, FeathersPlugins},
-    light::{atmosphere::ScatteringMedium, Atmosphere, AtmosphereEnvironmentMapLight},
+    light::{
+        atmosphere::ScatteringMedium, Atmosphere, AtmosphereEnvironmentMapLight,
+        CascadeShadowConfigBuilder,
+    },
     pbr::{
         wireframe::{WireframeConfig, WireframePlugin},
-        AtmosphereSettings, ContactShadows,
+        AtmosphereSettings, ContactShadows, ScreenSpaceAmbientOcclusion,
     },
     post_process::bloom::Bloom,
     prelude::*,
@@ -74,6 +77,7 @@ fn main() {
         // Like in many realistic large scenes, many of the objects don't move
         // We can accelerate transform propagation by optimizing for this case
         .insert_resource(StaticTransformOptimizations::Enabled)
+        .insert_resource(GlobalAmbientLight::NONE)
         .add_systems(
             Startup,
             (
@@ -83,18 +87,30 @@ fn main() {
                 (setup_city.after(load_assets), add_no_cpu_culling).chain(),
             ),
         )
-        .add_systems(Update, simulate_cars)
+        .add_systems(Update, (simulate_cars, update_shadow_cascade))
         .add_observer(add_no_cpu_culling_on_scene_ready)
         .run();
 }
 
-fn setup(mut commands: Commands, mut scattering_mediums: ResMut<Assets<ScatteringMedium>>) {
+fn setup(
+    mut commands: Commands,
+    mut scattering_mediums: ResMut<Assets<ScatteringMedium>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let mut atmosphere = Atmosphere::earth(scattering_mediums.add(ScatteringMedium::default()));
+    // atmosphere.ground_albedo = Vec3::new(97.0 / 256.0, 203.0 / 256.0, 139.0 / 256.0);
+
     commands.spawn((
         Camera3d::default(),
         Hdr,
-        Transform::from_xyz(15.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
-        FreeCamera::default(),
-        Atmosphere::earth(scattering_mediums.add(ScatteringMedium::default())),
+        Transform::from_xyz(150.0, 100.0, 200.0).looking_at(Vec3::ZERO, Vec3::Y),
+        FreeCamera {
+            walk_speed: 25.0,
+            run_speed: 100.0,
+            ..Default::default()
+        },
+        atmosphere,
         AtmosphereSettings::default(),
         // The directional light illuminance used in this scene is
         // quite bright, so raising the exposure compensation helps
@@ -107,6 +123,16 @@ fn setup(mut commands: Commands, mut scattering_mediums: ResMut<Assets<Scatterin
         Msaa::Off,
         TemporalAntiAliasing::default(),
         ContactShadows::default(),
+        // Exposure { ev100: 12.0 },
+        // Bloom {
+        //     intensity: 0.03,
+        //     ..Bloom::NATURAL
+        // },
+        // AtmosphereEnvironmentMapLight {
+        //     intensity: 0.5,
+        //     ..default()
+        // },
+        ScreenSpaceAmbientOcclusion::default(),
     ));
 
     commands.spawn((
@@ -116,8 +142,48 @@ fn setup(mut commands: Commands, mut scattering_mediums: ResMut<Assets<Scatterin
             illuminance: light_consts::lux::RAW_SUNLIGHT,
             ..default()
         },
+        CascadeShadowConfigBuilder {
+            num_cascades: 3,
+            maximum_distance: 1500.0,
+            ..default()
+        }
+        .build(),
         Transform::from_xyz(1.0, 0.15, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+
+    let ground_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 1.0, 1.0),
+        perceptual_roughness: 0.0,
+        metallic: 0.0,
+        ..Default::default()
+    });
+    commands.spawn((
+        Mesh3d(
+            meshes.add(
+                Plane3d::new(Vec3::Y, Vec2::splat(100_000.0))
+                    .mesh()
+                    .subdivisions(1),
+            ),
+        ),
+        MeshMaterial3d(ground_material),
+        Transform::default(),
+    ));
+}
+
+fn update_shadow_cascade(
+    mut commands: Commands,
+    directional_light: Single<Entity, With<DirectionalLight>>,
+    camera: Single<&Transform, (With<Camera3d>, Changed<Transform>)>,
+) {
+    commands.entity(*directional_light).insert(
+        CascadeShadowConfigBuilder {
+            num_cascades: 3,
+            maximum_distance: 2000.0,
+            first_cascade_far_bound: camera.translation.y.clamp(30.0, 300.0),
+            ..default()
+        }
+        .build(),
+    );
 }
 
 fn setup_city(mut commands: Commands, assets: Res<CityAssets>, args: Res<Args>) {

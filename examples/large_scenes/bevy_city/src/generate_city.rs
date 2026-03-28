@@ -27,7 +27,11 @@ pub fn spawn_city(commands: &mut Commands, assets: &CityAssets, seed: u64, size:
     let noise_scale = 0.025;
 
     commands
-        .spawn((CityRoot, Transform::default(), Visibility::default()))
+        .spawn((
+            CityRoot,
+            Transform::from_scale(Vec3::splat(10.0)),
+            Visibility::default(),
+        ))
         .with_children(|commands| {
             let half_size = size as i32 / 2;
             for x in -half_size..half_size {
