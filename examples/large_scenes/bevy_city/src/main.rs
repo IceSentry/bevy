@@ -62,6 +62,10 @@ pub struct Args {
     #[argh(switch)]
     no_cpu_culling: bool,
 
+    /// disables LODs
+    #[argh(switch)]
+    no_lod: bool,
+
     /// minimum range for LODs
     #[argh(option, default = "200.0")]
     lod_min_range: f32,
