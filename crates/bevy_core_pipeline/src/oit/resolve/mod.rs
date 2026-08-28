@@ -236,6 +236,10 @@ fn specialize_oit_resolve_pipeline(
                 }),
                 write_mask: ColorWrites::ALL,
             })],
+            constants: vec![(
+                "SORTED_FRAGMENT_MAX_COUNT".into(),
+                f64::from_bits(key.sorted_fragment_max_count as u64),
+            )],
             ..default()
         }),
         vertex: fullscreen_shader.to_vertex_state(),

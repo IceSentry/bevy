@@ -23,7 +23,7 @@ struct FullscreenVertexOutput {
 };
 
 const LINKED_LIST_END_SENTINEL: u32 = 0xFFFFFFFFu;
-const SORTED_FRAGMENT_MAX_COUNT: u32 = constants::SORTED_FRAGMENT_MAX_COUNT;
+override SORTED_FRAGMENT_MAX_COUNT: u32;
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {

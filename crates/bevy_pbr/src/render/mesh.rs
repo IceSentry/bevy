@@ -3339,6 +3339,7 @@ impl SpecializedMeshPipeline for MeshPipeline {
     ) -> Result<RenderPipelineDescriptor, SpecializedMeshPipelineError> {
         let mut shader_defs = Vec::new();
         let mut vertex_attributes = Vec::new();
+        let mut constants = Vec::new();
 
         // Let the shader code know that it's running in a mesh pipeline.
         shader_defs.push("MESH_PIPELINE".into());
@@ -3644,15 +3645,21 @@ impl SpecializedMeshPipeline for MeshPipeline {
         let blur_quality =
             key.intersection(MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_RESERVED_BITS);
 
-        shader_defs.push(ShaderDefVal::Int(
+        // shader_defs.push(ShaderDefVal::Bool(
+        //     "SCREEN_SPACE_SPECULAR_TRANSMISSION_BLUR_TAPS".into(),
+        //     true,
+        // ));
+
+        let blur_taps = match blur_quality {
+            MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_LOW => 4,
+            MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_MEDIUM => 8,
+            MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_HIGH => 16,
+            MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_ULTRA => 32,
+            _ => unreachable!(), // Not possible, since the mask is 2 bits, and we've covered all 4 cases
+        };
+        constants.push((
             "SCREEN_SPACE_SPECULAR_TRANSMISSION_BLUR_TAPS".into(),
-            match blur_quality {
-                MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_LOW => 4,
-                MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_MEDIUM => 8,
-                MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_HIGH => 16,
-                MeshPipelineKey::SCREEN_SPACE_SPECULAR_TRANSMISSION_ULTRA => 32,
-                _ => unreachable!(), // Not possible, since the mask is 2 bits, and we've covered all 4 cases
-            },
+            f64::from_bits(blur_taps),
         ));
 
         if key.contains(MeshPipelineKey::VISIBILITY_RANGE_DITHER) {
@@ -3700,6 +3707,7 @@ impl SpecializedMeshPipeline for MeshPipeline {
                 shader: self.shader.clone(),
                 shader_defs: shader_defs.clone(),
                 buffers: vec![vertex_buffer_layout],
+                constants: constants.clone(),
                 ..default()
             },
             fragment: Some(FragmentState {
@@ -3710,6 +3718,7 @@ impl SpecializedMeshPipeline for MeshPipeline {
                     blend,
                     write_mask: ColorWrites::ALL,
                 })],
+                constants: constants.clone(),
                 ..default()
             }),
             layout: bind_group_layout,
