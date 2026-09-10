@@ -34,7 +34,7 @@ use bevy_render::{
     view::{Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
     Extract, ExtractSchedule, GpuResourceAppExt, Render, RenderApp, RenderSystems,
 };
-use bevy_shader::{load_shader_library, Shader, ShaderDefVal};
+use bevy_shader::{load_shader_library, Shader};
 use bevy_utils::prelude::default;
 use core::mem;
 use tracing::{error, warn};
@@ -464,13 +464,7 @@ impl SpecializedComputePipeline for SsaoPipelines {
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
         let (slice_count, samples_per_slice_side) = key.quality_level.sample_counts();
 
-        let mut shader_defs = vec![
-            ShaderDefVal::Int("SLICE_COUNT".into(), slice_count as i32),
-            ShaderDefVal::Int(
-                "SAMPLES_PER_SLICE_SIDE".into(),
-                samples_per_slice_side as i32,
-            ),
-        ];
+        let mut shader_defs = Vec::new();
 
         if key.temporal_jitter {
             shader_defs.push("TEMPORAL_JITTER".into());
@@ -488,6 +482,13 @@ impl SpecializedComputePipeline for SsaoPipelines {
             ],
             shader: self.shader.clone(),
             shader_defs,
+            constants: vec![
+                ("SLICE_COUNT".into(), f64::from(slice_count)),
+                (
+                    "SAMPLES_PER_SLICE_SIDE".into(),
+                    f64::from(samples_per_slice_side),
+                ),
+            ],
             ..default()
         }
     }

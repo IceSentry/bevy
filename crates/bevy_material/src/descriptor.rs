@@ -74,7 +74,18 @@ pub struct VertexState {
     pub entry_point: Option<Cow<'static, str>>,
     /// The format of any vertex buffers used with this pipeline.
     pub buffers: Vec<VertexBufferLayout>,
-    /// Values for pipeline-overridable constants declared with `override` in this shader stage.
+    /// Values for pipeline-overridable constants declared with `override`.
+    ///
+    /// A key is the module path as WESL prints it, followed by the override name:
+    /// the bare `NAME` for an override declared in this stage's shader,
+    /// `pkg::module::NAME` for one in a module registered as an embedded or library
+    /// shader (e.g. `bevy_pbr::transmission::SCREEN_SPACE_SPECULAR_TRANSMISSION_BLUR_TAPS`),
+    /// and `package::path::to::module::NAME` for one in a module loaded by asset path
+    /// (e.g. `package::shaders::util::TAPS` for `assets/shaders/util.wesl`).
+    /// For WESL shaders, keys whose override is absent from the compiled module are
+    /// skipped, so a value may be set for a module that is only conditionally imported,
+    /// and an override declared with `@id(N)` may also be keyed by `N`. WGSL and SPIR-V
+    /// shaders receive bare keys unchanged.
     pub constants: Vec<(Cow<'static, str>, f64)>,
 }
 
@@ -89,7 +100,7 @@ pub struct FragmentState {
     pub entry_point: Option<Cow<'static, str>>,
     /// The color state of the render targets.
     pub targets: Vec<Option<ColorTargetState>>,
-    /// Values for pipeline-overridable constants declared with `override` in this shader stage.
+    /// Values for pipeline-overridable constants. See [`VertexState::constants`].
     pub constants: Vec<(Cow<'static, str>, f64)>,
 }
 
@@ -114,7 +125,7 @@ pub struct ComputePipelineDescriptor {
     /// Whether to zero-initialize workgroup memory by default. If you're not sure, set this to true.
     /// If this is false, reading from workgroup variables before writing to them will result in garbage values.
     pub zero_initialize_workgroup_memory: bool,
-    /// Values for pipeline-overridable constants declared with `override` in the shader.
+    /// Values for pipeline-overridable constants. See [`VertexState::constants`].
     pub constants: Vec<(Cow<'static, str>, f64)>,
 }
 

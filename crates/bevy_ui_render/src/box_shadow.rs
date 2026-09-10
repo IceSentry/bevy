@@ -26,7 +26,7 @@ use bevy_render::{
     Extract, ExtractSchedule, Render, RenderSystems,
 };
 use bevy_render::{GpuResourceAppExt, RenderApp, RenderStartup};
-use bevy_shader::{Shader, ShaderDefVal};
+use bevy_shader::Shader;
 use bevy_ui::{
     BoxShadow, CalculatedClip, ComputedNode, ComputedStackIndex, ComputedUiRenderTargetInfo,
     ComputedUiTargetCamera, ResolvedBorderRadius, UiGlobalTransform, Val,
@@ -158,23 +158,20 @@ impl SpecializedRenderPipeline for BoxShadowPipeline {
                 VertexFormat::Float32x2,
             ],
         );
-        let shader_defs = vec![ShaderDefVal::UInt("SHADOW_SAMPLES".into(), key.samples)];
-
         RenderPipelineDescriptor {
             vertex: VertexState {
                 shader: self.shader.clone(),
-                shader_defs: shader_defs.clone(),
                 buffers: vec![vertex_layout],
                 ..default()
             },
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
-                shader_defs,
                 targets: vec![Some(ColorTargetState {
                     format: key.target_format,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
+                constants: vec![("SAMPLES".into(), f64::from(key.samples))],
                 ..default()
             }),
             layout: vec![self.view_layout.clone()],

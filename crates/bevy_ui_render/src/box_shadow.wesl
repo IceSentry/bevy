@@ -5,7 +5,7 @@ import package::ui::{
 };
 
 const PI: f32 = 3.14159265358979323846;
-const SAMPLES: i32 = constants::SHADOW_SAMPLES;
+override SAMPLES: i32;
 
 @group(0) @binding(0) var<uniform> view: View;
 

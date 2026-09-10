@@ -68,9 +68,126 @@ pub enum ShaderCacheSource<'a> {
 /// Typically corresponds to a unique combination of [`Shader`] and [`ShaderDefVal`]s.
 pub type CachedPipelineId = usize;
 
+/// A shader module produced by `load_module`, together with the `override` declarations
+/// left in it after compilation.
+#[derive(Debug)]
+pub struct CompiledShader<ShaderModule> {
+    /// The module usable by the render device.
+    pub module: ShaderModule,
+    /// The `override` declarations in `module`, keyed as in a pipeline descriptor's `constants`.
+    pub overrides: ShaderOverrides,
+}
+
+/// Maps the keys in a pipeline descriptor's `constants` to the identifiers of the
+/// `override` declarations in the compiled WGSL.
+///
+/// Overrides declared in an imported WESL module are mangled by the compiler, and
+/// unreferenced overrides are stripped, so the `constants` keys cannot be handed
+/// to the GPU API verbatim.
+#[derive(Debug)]
+pub struct ShaderOverrides {
+    shader_path: String,
+    /// `None` for sources bevy does not compile itself (WGSL, SPIR-V); keys pass through.
+    names: Option<HashMap<String, String>>,
+    modules: HashSet<String>,
+}
+
+impl ShaderOverrides {
+    fn opaque(shader_path: &str) -> Self {
+        Self {
+            shader_path: shader_path.to_string(),
+            names: None,
+            modules: HashSet::default(),
+        }
+    }
+
+    fn from_wesl(
+        shader_path: &str,
+        compiled: &wesl::CompileResult,
+        resolver: &ShaderResolver,
+        modules: HashSet<String>,
+    ) -> Self {
+        use wesl::syntax::{
+            Attribute, DeclarationKind, Expression, GlobalDeclaration, LiteralExpression,
+        };
+        use wesl::{Resolver, SourceMap};
+        let mut names = HashMap::default();
+        for decl in &compiled.syntax.global_declarations {
+            let GlobalDeclaration::Declaration(decl) = decl.node() else {
+                continue;
+            };
+            if decl.kind != DeclarationKind::Override {
+                continue;
+            }
+            let ident = decl.ident.name().to_string();
+            // naga matches an `@id(N)` override by `N` rather than by name.
+            let id = decl.attributes.iter().find_map(|attr| match attr.node() {
+                Attribute::Id(expr) => match expr.node() {
+                    Expression::Literal(LiteralExpression::AbstractInt(id)) => Some(id.to_string()),
+                    Expression::Literal(LiteralExpression::I32(id)) => Some(id.to_string()),
+                    Expression::Literal(LiteralExpression::U32(id)) => Some(id.to_string()),
+                    _ => None,
+                },
+                _ => None,
+            });
+            let emitted: String = id.as_deref().unwrap_or(&ident).into();
+            if let Some(id) = id {
+                names.insert(id, emitted.clone());
+            }
+            // Root declarations are not mangled and so have no sourcemap entry.
+            let key = match compiled.sourcemap.get_decl(&ident) {
+                Some((path, item)) => format!("{}::{item}", resolver.canonical_path(path)),
+                None => ident,
+            };
+            names.insert(key, emitted);
+        }
+        Self {
+            shader_path: shader_path.to_string(),
+            names: Some(names),
+            modules,
+        }
+    }
+
+    /// Resolves descriptor `constants` to the names the compiled module declares,
+    /// dropping keys with no matching override.
+    pub fn resolve<'a>(&'a self, constants: &'a [(Cow<'static, str>, f64)]) -> Vec<(&'a str, f64)> {
+        constants
+            .iter()
+            .filter_map(|(key, value)| {
+                let key = key.as_ref();
+                let Some(names) = &self.names else {
+                    if key.contains("::") {
+                        debug!(
+                            "Skipping pipeline constant `{key}`: shader `{}` is not WESL, so the key cannot name an imported module",
+                            self.shader_path
+                        );
+                        return None;
+                    }
+                    return Some((key, *value));
+                };
+                if let Some(name) = names.get(key) {
+                    return Some((name.as_ref(), *value));
+                }
+                match key.rsplit_once("::") {
+                    Some((module, _)) if !self.modules.contains(module) => debug!(
+                        "Skipping pipeline constant `{key}`: module `{module}` is not part of shader `{}`",
+                        self.shader_path
+                    ),
+                    _ => warn!(
+                        "Pipeline constant `{key}` has no matching override in shader `{}`; \
+                        misspelled or stripped as unused",
+                        self.shader_path
+                    ),
+                }
+                None
+            })
+            .collect()
+    }
+}
+
 struct ShaderData<ShaderModule> {
     pipelines: HashSet<CachedPipelineId>,
-    processed_shaders: HashMap<Box<[ShaderDefVal]>, Arc<ShaderModule>>,
+    processed_shaders: HashMap<Box<[ShaderDefVal]>, Arc<CompiledShader<ShaderModule>>>,
     resolved_imports: HashMap<ShaderImport, AssetId<Shader>>,
     dependents: HashSet<AssetId<Shader>>,
 }
@@ -180,7 +297,7 @@ impl<ShaderModule, RenderDevice> ShaderCache<ShaderModule, RenderDevice> {
         pipeline: CachedPipelineId,
         id: AssetId<Shader>,
         shader_defs: &[ShaderDefVal],
-    ) -> Result<Arc<ShaderModule>, ShaderCacheError> {
+    ) -> Result<Arc<CompiledShader<ShaderModule>>, ShaderCacheError> {
         let shader = self
             .shaders
             .get(&id)
@@ -216,8 +333,11 @@ impl<ShaderModule, RenderDevice> ShaderCache<ShaderModule, RenderDevice> {
                     "processing shader {}, with shader defs {:?}",
                     id, shader_defs
                 );
-                let shader_source = match &shader.source {
-                    Source::SpirV(data) => ShaderCacheSource::SpirV(data.as_ref()),
+                let (shader_source, overrides) = match &shader.source {
+                    Source::SpirV(data) => (
+                        ShaderCacheSource::SpirV(data.as_ref()),
+                        ShaderOverrides::opaque(&shader.path),
+                    ),
                     Source::Wesl(_) => {
                         if let Some(module_path) = wesl_module_path(&shader.import_path) {
                             let mut compiler_options = wesl::CompileOptions {
@@ -310,27 +430,24 @@ impl<ShaderModule, RenderDevice> ShaderCache<ShaderModule, RenderDevice> {
                                 }
                             })?;
 
+                            let mut modules = HashSet::default();
                             for used in &compiled.modules {
-                                let used = match &used.origin {
-                                    wesl::syntax::PathOrigin::Package(pkg) if pkg.contains('/') => {
-                                        Cow::Owned(wesl::syntax::ModulePath {
-                                            origin: wesl::syntax::PathOrigin::Package(
-                                                pkg.rsplit('/').next().unwrap().to_string(),
-                                            ),
-                                            components: used.components.clone(),
-                                        })
-                                    }
-                                    _ => Cow::Borrowed(used),
-                                };
-                                if let Some(dep_id) =
-                                    self.module_path_to_asset_id.get(used.as_ref())
+                                let used = wesl::Resolver::canonical_path(&shader_resolver, used);
+                                if let Some(dep_id) = self.module_path_to_asset_id.get(&used)
                                     && *dep_id != id
                                 {
                                     wesl_dependencies.push(*dep_id);
                                 }
+                                modules.insert(used.to_string());
                             }
 
-                            ShaderCacheSource::Wgsl(compiled.to_string())
+                            let overrides = ShaderOverrides::from_wesl(
+                                &shader.path,
+                                &compiled,
+                                &shader_resolver,
+                                modules,
+                            );
+                            (ShaderCacheSource::Wgsl(compiled.to_string()), overrides)
                         } else {
                             return Err(ShaderCacheError::ProcessShaderError(format!(
                                 "Wesl shader `{}` has a malformed import path `{:?}`",
@@ -338,13 +455,16 @@ impl<ShaderModule, RenderDevice> ShaderCache<ShaderModule, RenderDevice> {
                             )));
                         }
                     }
-                    Source::Wgsl(wgsl_source) => ShaderCacheSource::Wgsl(wgsl_source.to_string()),
+                    Source::Wgsl(wgsl_source) => (
+                        ShaderCacheSource::Wgsl(wgsl_source.to_string()),
+                        ShaderOverrides::opaque(&shader.path),
+                    ),
                 };
 
-                let shader_module =
+                let module =
                     (self.load_module)(&self.device, shader_source, &shader.validate_shader)?;
 
-                entry.insert(Arc::new(shader_module))
+                entry.insert(Arc::new(CompiledShader { module, overrides }))
             }
         };
         let module = module.clone();
@@ -567,9 +687,9 @@ mod tests {
         let compiled = cache
             .get(0, root_id, &[ShaderDefVal::Bool("BRIGHT".into(), true)])
             .unwrap();
-        assert!(compiled.contains("fn fragment"));
-        assert!(compiled.contains("* 2.0"));
-        assert!(compiled.contains("+ 0.1"));
+        assert!(compiled.module.contains("fn fragment"));
+        assert!(compiled.module.contains("* 2.0"));
+        assert!(compiled.module.contains("+ 0.1"));
 
         let (maths, lighting, _) = test_shaders();
         assert!(cache.set_shader(lighting_id, lighting).contains(&0));
@@ -605,8 +725,123 @@ fn fragment() -> @location(0) vec4<f32> {
                 &[ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2)],
             )
             .unwrap();
-        assert!(compiled.contains("= 2;"));
-        assert!(compiled.contains("= 4;"));
+        assert!(compiled.module.contains("= 2;"));
+        assert!(compiled.module.contains("= 4;"));
+    }
+
+    /// Compiles a root module importing `TAPS` from a library at `lib_path` and checks that `key`
+    /// resolves to the mangled name while a key for a module that was not imported is dropped.
+    fn assert_imported_override(lib_path: &str, import: &str, key: &str) {
+        let mut cache = test_cache();
+        let (lib_id, _, root_id) = test_ids();
+        let lib = Shader::from_wesl("override TAPS: u32 = 4u;", lib_path);
+        let root = Shader::from_wesl(
+            format!(
+                "import {import};\n\
+                 @fragment\n\
+                 fn fragment() -> @location(0) vec4<f32> {{ return vec4<f32>(f32(TAPS)); }}"
+            ),
+            "shaders/root.wesl",
+        );
+        cache.set_shader(lib_id, lib);
+        cache.set_shader(root_id, root);
+
+        let compiled = cache.get(0, root_id, &[]).unwrap();
+        let constants = [
+            (key.to_string().into(), 8.0),
+            ("bevy_other::settings::TAPS".into(), 1.0),
+        ];
+        let resolved = compiled.overrides.resolve(&constants);
+        assert_eq!(resolved.len(), 1);
+        let (name, value) = resolved[0];
+        assert_eq!(value, 8.0);
+        assert_ne!(name, "TAPS");
+        assert!(compiled.module.contains(&format!("override {name}")));
+    }
+
+    #[test]
+    fn imported_override_resolves_to_mangled_name() {
+        assert_imported_override(
+            "embedded://bevy_lib/settings.wesl",
+            "bevy_lib::settings::TAPS",
+            "bevy_lib::settings::TAPS",
+        );
+        assert_imported_override(
+            "shaders/util.wesl",
+            "super::util::TAPS",
+            "package::shaders::util::TAPS",
+        );
+    }
+
+    #[test]
+    fn root_override_resolves_to_bare_name() {
+        let mut cache = test_cache();
+        let (_, _, root_id) = test_ids();
+        let root = Shader::from_wesl(
+            r#"
+override SCALE: f32 = 1.0;
+
+@fragment
+fn fragment() -> @location(0) vec4<f32> {
+    return vec4<f32>(SCALE);
+}
+"#,
+            "shaders/root.wesl",
+        );
+        cache.set_shader(root_id, root);
+
+        let compiled = cache.get(0, root_id, &[]).unwrap();
+        let constants = [("SCALE".into(), 2.0)];
+        assert_eq!(compiled.overrides.resolve(&constants), vec![("SCALE", 2.0)]);
+    }
+
+    #[test]
+    fn id_override_resolves_to_id() {
+        let mut cache = test_cache();
+        let (_, _, root_id) = test_ids();
+        let root = Shader::from_wesl(
+            r#"
+@id(7) override X: f32 = 1.0;
+
+@fragment
+fn fragment() -> @location(0) vec4<f32> {
+    return vec4<f32>(X);
+}
+"#,
+            "shaders/root.wesl",
+        );
+        cache.set_shader(root_id, root);
+
+        let compiled = cache.get(0, root_id, &[]).unwrap();
+        assert!(compiled.module.contains("@id(7)"));
+        let constants = [("X".into(), 2.0), ("7".into(), 2.0)];
+        assert_eq!(
+            compiled.overrides.resolve(&constants),
+            vec![("7", 2.0), ("7", 2.0)]
+        );
+    }
+
+    #[test]
+    fn unreferenced_override_is_dropped() {
+        let mut cache = test_cache();
+        let (_, _, root_id) = test_ids();
+        let root = Shader::from_wesl(
+            r#"
+override UNUSED: f32 = 1.0;
+
+@fragment
+fn fragment() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+"#,
+            "shaders/root.wesl",
+        );
+        cache.set_shader(root_id, root);
+
+        let compiled = cache.get(0, root_id, &[]).unwrap();
+        assert!(!compiled.module.contains("UNUSED"));
+        let constants = [("UNUSED".into(), 2.0)];
+        assert!(compiled.overrides.resolve(&constants).is_empty());
     }
 
     #[test]
@@ -722,8 +957,8 @@ fn fragment() -> @location(0) vec4<f32> { return batch_b[0]; }
 
         let compiled_a = cache.get(0, id(3), &[]).unwrap();
         let compiled_b = cache.get(1, id(4), &[]).unwrap();
-        assert!(compiled_a.contains("= 3;") && !compiled_a.contains("= 7;"));
-        assert!(compiled_b.contains("= 7;") && !compiled_b.contains("= 3;"));
+        assert!(compiled_a.module.contains("= 3;") && !compiled_a.module.contains("= 7;"));
+        assert!(compiled_b.module.contains("= 7;") && !compiled_b.module.contains("= 3;"));
     }
 
     #[test]

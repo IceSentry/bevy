@@ -36,6 +36,9 @@ struct SsaoSettings {
 @group(1) @binding(1) var linear_clamp_sampler: sampler;
 @group(1) @binding(2) var<uniform> view: View;
 
+override SLICE_COUNT: u32;
+override SAMPLES_PER_SLICE_SIDE: u32;
+
 fn load_noise(pixel_coordinates: vec2<i32>) -> vec2<f32> {
     var index = textureLoad(hilbert_index_lut, pixel_coordinates % 64, 0).r;
 
@@ -134,8 +137,8 @@ fn processSample(
 @compute
 @workgroup_size(8, 8, 1)
 fn ssao(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let slice_count = f32(constants::SLICE_COUNT);
-    let samples_per_slice_side = f32(constants::SAMPLES_PER_SLICE_SIDE);
+    let slice_count = f32(SLICE_COUNT);
+    let samples_per_slice_side = f32(SAMPLES_PER_SLICE_SIDE);
 
     let pixel_coordinates = vec2<i32>(global_id.xy);
     let uv = (vec2<f32>(pixel_coordinates) + 0.5) / view.viewport.zw;

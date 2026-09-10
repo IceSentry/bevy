@@ -497,19 +497,19 @@ impl PipelineCache {
                 let mut shader_cache = shader_cache.lock().unwrap();
                 let mut layout_cache = layout_cache.lock().unwrap();
 
-                let vertex_module = match shader_cache.get(
+                let vertex_shader = match shader_cache.get(
                     id,
                     descriptor.vertex.shader.id(),
                     &descriptor.vertex.shader_defs,
                 ) {
-                    Ok(module) => module,
+                    Ok(shader) => shader,
                     Err(err) => return Err(err),
                 };
 
-                let fragment_module = match &descriptor.fragment {
+                let fragment_shader = match &descriptor.fragment {
                     Some(fragment) => {
                         match shader_cache.get(id, fragment.shader.id(), &fragment.shader_defs) {
-                            Ok(module) => Some(module),
+                            Ok(shader) => Some(shader),
                             Err(err) => return Err(err),
                         }
                     }
@@ -537,25 +537,22 @@ impl PipelineCache {
                     })
                     .collect::<Vec<_>>();
 
-                let fragment_data = descriptor.fragment.as_ref().map(|fragment| {
-                    (
-                        fragment_module.unwrap(),
-                        fragment.entry_point.as_deref(),
-                        fragment.targets.as_slice(),
-                        fragment
-                            .constants
-                            .iter()
-                            .map(|(k, v)| (k.as_ref(), *v))
-                            .collect::<Vec<_>>(),
-                    )
-                });
+                let fragment_data = descriptor
+                    .fragment
+                    .as_ref()
+                    .zip(fragment_shader.as_ref())
+                    .map(|(fragment, shader)| {
+                        (
+                            shader,
+                            fragment.entry_point.as_deref(),
+                            fragment.targets.as_slice(),
+                            shader.overrides.resolve(&fragment.constants),
+                        )
+                    });
 
-                let vertex_constants: Vec<(&str, f64)> = descriptor
-                    .vertex
-                    .constants
-                    .iter()
-                    .map(|(k, v)| (k.as_ref(), *v))
-                    .collect();
+                let vertex_constants = vertex_shader
+                    .overrides
+                    .resolve(&descriptor.vertex.constants);
 
                 let descriptor = RawRenderPipelineDescriptor {
                     multiview_mask: None,
@@ -567,7 +564,7 @@ impl PipelineCache {
                     vertex: RawVertexState {
                         buffers: &vertex_buffer_layouts,
                         entry_point: descriptor.vertex.entry_point.as_deref(),
-                        module: &vertex_module,
+                        module: &vertex_shader.module,
                         compilation_options: PipelineCompilationOptions {
                             constants: &vertex_constants,
                             zero_initialize_workgroup_memory: descriptor
@@ -575,9 +572,9 @@ impl PipelineCache {
                         },
                     },
                     fragment: fragment_data.as_ref().map(
-                        |(module, entry_point, targets, constants)| RawFragmentState {
+                        |(shader, entry_point, targets, constants)| RawFragmentState {
                             entry_point: entry_point.as_deref(),
-                            module,
+                            module: &shader.module,
                             targets,
                             compilation_options: PipelineCompilationOptions {
                                 constants,
@@ -619,9 +616,9 @@ impl PipelineCache {
                 let mut shader_cache = shader_cache.lock().unwrap();
                 let mut layout_cache = layout_cache.lock().unwrap();
 
-                let compute_module =
+                let compute_shader =
                     match shader_cache.get(id, descriptor.shader.id(), &descriptor.shader_defs) {
-                        Ok(module) => module,
+                        Ok(shader) => shader,
                         Err(err) => return Err(err),
                     };
 
@@ -633,15 +630,11 @@ impl PipelineCache {
 
                 drop((shader_cache, layout_cache));
 
-                let constants: Vec<(&str, f64)> = descriptor
-                    .constants
-                    .iter()
-                    .map(|(k, v)| (k.as_ref(), *v))
-                    .collect();
+                let constants = compute_shader.overrides.resolve(&descriptor.constants);
                 let descriptor = RawComputePipelineDescriptor {
                     label: descriptor.label.as_deref(),
                     layout: layout.as_ref().map(|layout| -> &PipelineLayout { layout }),
-                    module: &compute_module,
+                    module: &compute_shader.module,
                     entry_point: descriptor.entry_point.as_deref(),
                     compilation_options: PipelineCompilationOptions {
                         constants: &constants,
