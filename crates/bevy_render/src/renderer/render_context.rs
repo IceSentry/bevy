@@ -17,7 +17,7 @@ use bevy_ecs::world::DeferredWorld;
 #[cfg(feature = "trace")]
 use bevy_log::info_span;
 #[cfg(not(target_arch = "wasm32"))]
-use bevy_tasks::ComputeTaskPool;
+use bevy_tasks::{ComputeTaskPool, Task};
 use core::marker::PhantomData;
 use wgpu::CommandBuffer;
 
@@ -28,16 +28,40 @@ struct PendingCommandBuffersInner {
 
 enum PendingCommandBuffer {
     Buffer(CommandBuffer),
-    Encoder {
-        encoder: CommandEncoder,
-        #[cfg(feature = "trace")]
-        name: Cow<'static, str>,
-    },
+    #[cfg(not(target_arch = "wasm32"))]
+    Finishing(Task<CommandBuffer>),
+}
+
+impl PendingCommandBuffer {
+    fn from_encoder(encoder: CommandEncoder, name: impl Into<Cow<'static, str>>) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = name;
+            Self::Buffer(encoder.finish())
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            #[cfg(feature = "trace")]
+            let name = name.into();
+            #[cfg(not(feature = "trace"))]
+            let _ = name;
+
+            Self::Finishing(ComputeTaskPool::get().spawn(async move {
+                #[cfg(feature = "trace")]
+                let _span = info_span!("finish_command_buffer", system = name.as_ref()).entered();
+                encoder.finish()
+            }))
+        }
+    }
 }
 
 wgpu_wrapper!(struct WgpuPendingCommandBuffersInner(PendingCommandBuffersInner));
 
-/// A resource that holds command buffers and encoders that are pending submission to the render queue.
+/// A resource that holds command buffers that are pending submission to the render queue.
+///
+/// Encoders that are pushed here start to finish at once on the [`ComputeTaskPool`].
+/// [`PendingCommandBuffers::finish`] waits for them and keeps the order in which they were pushed.
 #[derive(Resource)]
 pub struct PendingCommandBuffers(WgpuPendingCommandBuffersInner);
 
@@ -61,16 +85,15 @@ impl PendingCommandBuffers {
     }
 
     pub fn push_encoder(&mut self, encoder: CommandEncoder, name: impl Into<Cow<'static, str>>) {
-        #[cfg(not(feature = "trace"))]
-        let _ = name;
-
-        self.0.commands.push(PendingCommandBuffer::Encoder {
-            encoder,
-            #[cfg(feature = "trace")]
-            name: name.into(),
-        });
+        self.0
+            .commands
+            .push(PendingCommandBuffer::from_encoder(encoder, name));
     }
 
+    /// Waits for all pending command buffers and returns them in the order in which they were pushed.
+    ///
+    /// The encoders started to finish on the [`ComputeTaskPool`] when they were pushed. This function
+    /// does not finish them again. It only waits for the tasks that are not complete yet.
     pub fn finish(&mut self) -> impl Iterator<Item = CommandBuffer> {
         #[cfg(feature = "trace")]
         let _finish_command_buffers_span = info_span!("finish_command_buffers").entered();
@@ -79,12 +102,32 @@ impl PendingCommandBuffers {
 
         #[cfg(target_arch = "wasm32")]
         {
-            finish_sequential(commands)
+            commands.map(|PendingCommandBuffer::Buffer(command_buffer)| command_buffer)
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            finish_parallel(commands)
+            // Wait inside a scope and not with `block_on`. While a scope waits, the current thread
+            // also runs tasks from the global executor of the `ComputeTaskPool`:
+            // - The render thread helps to finish encoders that no thread has started yet.
+            // - If the pool has no threads, the finish tasks still run, so the frame does not hang.
+            // One task awaits all entries in push order. This keeps the submission order and does
+            // not spawn a task for each entry.
+            ComputeTaskPool::get()
+                .scope(|scope| {
+                    scope.spawn(async move {
+                        let mut command_buffers = Vec::with_capacity(commands.len());
+                        for command in commands {
+                            command_buffers.push(match command {
+                                PendingCommandBuffer::Buffer(command_buffer) => command_buffer,
+                                PendingCommandBuffer::Finishing(task) => task.await,
+                            });
+                        }
+                        command_buffers
+                    });
+                })
+                .into_iter()
+                .flatten()
         }
     }
 
@@ -97,56 +140,6 @@ impl PendingCommandBuffers {
     }
 }
 
-/// Finishes pending command buffers sequentially, preserving their order.
-///
-/// Used on wasm, where wgpu command encoders and buffers are `!Send` and so
-/// cannot be finished across task pool threads.
-#[cfg(target_arch = "wasm32")]
-fn finish_sequential(
-    commands: impl Iterator<Item = PendingCommandBuffer>,
-) -> impl Iterator<Item = CommandBuffer> {
-    commands.into_iter().map(|command| match command {
-        PendingCommandBuffer::Buffer(command_buffer) => command_buffer,
-        PendingCommandBuffer::Encoder { encoder, .. } => encoder.finish(),
-    })
-}
-
-/// Finishes pending command encoders in parallel on the [`ComputeTaskPool`],
-/// then reassembles the command buffers in their original order.
-#[cfg(not(target_arch = "wasm32"))]
-fn finish_parallel(
-    commands: impl Iterator<Item = PendingCommandBuffer>,
-) -> impl Iterator<Item = CommandBuffer> {
-    let mut command_buffers = Vec::with_capacity(commands.size_hint().0);
-    let mut finished_encoders = ComputeTaskPool::get().scope(|scope| {
-        for (index, command) in commands.into_iter().enumerate() {
-            match command {
-                PendingCommandBuffer::Buffer(command_buffer) => {
-                    command_buffers.push((index, command_buffer));
-                }
-                PendingCommandBuffer::Encoder {
-                    encoder,
-                    #[cfg(feature = "trace")]
-                    name,
-                } => {
-                    scope.spawn(async move {
-                        #[cfg(feature = "trace")]
-                        let _span =
-                            info_span!("finish_command_buffer", system = name.as_ref()).entered();
-                        (index, encoder.finish())
-                    });
-                }
-            }
-        }
-    });
-
-    command_buffers.append(&mut finished_encoders);
-    command_buffers.sort_unstable_by_key(|(index, _)| *index);
-    command_buffers
-        .into_iter()
-        .map(|(_, command_buffer)| command_buffer)
-}
-
 #[derive(Default)]
 struct RenderContextStateInner {
     command_encoder: Option<CommandEncoder>,
@@ -155,13 +148,10 @@ struct RenderContextStateInner {
 }
 
 impl RenderContextStateInner {
-    fn flush_encoder(&mut self) {
+    fn flush_encoder(&mut self, name: impl Into<Cow<'static, str>>) {
         if let Some(encoder) = self.command_encoder.take() {
-            self.commands.push(PendingCommandBuffer::Encoder {
-                encoder,
-                #[cfg(feature = "trace")]
-                name: "RenderContextState::flush_encoder".into(),
-            });
+            self.commands
+                .push(PendingCommandBuffer::from_encoder(encoder, name));
         }
     }
 }
@@ -169,9 +159,10 @@ impl RenderContextStateInner {
 wgpu_wrapper!(struct WgpuRenderContextStateInner(RenderContextStateInner));
 
 /// A resource that holds the current render context state, including command encoder and command buffers.
-/// This is used internally by the [`RenderContext`] system parameter. Implements [`SystemBuffer`] to
-/// append command buffers and unfinished encoders in topological system order. Pending encoders are
-/// finished in parallel immediately before submission.
+/// This is used internally by the [`RenderContext`] system parameter. When the [`RenderContext`] is
+/// dropped at the end of a system, its encoder starts to finish on the [`ComputeTaskPool`]. Implements
+/// [`SystemBuffer`] to append the pending command buffers to [`PendingCommandBuffers`] in topological
+/// system order.
 pub struct RenderContextState(WgpuRenderContextStateInner);
 
 impl Default for RenderContextState {
@@ -183,10 +174,6 @@ impl Default for RenderContextState {
 }
 
 impl RenderContextState {
-    fn flush_encoder(&mut self) {
-        self.0.flush_encoder();
-    }
-
     fn command_encoder(&mut self, label: &str) -> &mut CommandEncoder {
         let render_device = self
             .0
@@ -208,15 +195,6 @@ impl SystemBuffer for RenderContextState {
             info_span!("RenderContextState::apply", system = %_system_meta.name()).entered();
 
         let inner = &mut *self.0;
-
-        inner.flush_encoder();
-
-        #[cfg(feature = "trace")]
-        for command in &mut inner.commands {
-            if let PendingCommandBuffer::Encoder { name, .. } = command {
-                *name = _system_meta.name().clone().into();
-            }
-        }
 
         if !inner.commands.is_empty() {
             let mut pending = world.resource_mut::<PendingCommandBuffers>();
@@ -281,11 +259,17 @@ impl<'w, 's> RenderContext<'w, 's> {
 
     /// Adds a finished command buffer to be submitted later.
     pub fn add_command_buffer(&mut self, command_buffer: CommandBuffer) {
-        self.state.flush_encoder();
+        self.state.0.flush_encoder(self.system_name.name());
         self.state
             .0
             .commands
             .push(PendingCommandBuffer::Buffer(command_buffer));
+    }
+}
+
+impl Drop for RenderContext<'_, '_> {
+    fn drop(&mut self) {
+        self.state.0.flush_encoder(self.system_name.name());
     }
 }
 
